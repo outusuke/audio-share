@@ -25,3 +25,8 @@ std::string audio_manager::get_format_binary()
 {
     return _format->SerializeAsString();
 }
+
+std::shared_ptr<audio_manager::AudioFormat> audio_manager::get_format() const
+{
+    return _format;
+}

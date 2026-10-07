@@ -69,6 +69,16 @@ Audio Share can share Windows/Linux computer's audio to Android phone over netwo
 - Install APK to your phone and open it. Modify the "Host" part to make sure it's same as the value of previous step, such as `192.168.xxx.xxx`. Click "▶" button and enjoy the audio🎶.
 
 
+## Audio Compression (Opus)
+By default the server sends uncompressed PCM, which can take several Mbit/s and may stutter on weak Wi-Fi. Start the command line server with `--compression=opus` to send 20 ms Opus packets instead (default 128 kbit/s, change it with `--bitrate=<kbps>`):
+```sh
+as-cmd -b --compression=opus --bitrate=96
+```
+- The phone app must support Opus, since the protocol has no negotiation. Leave the option off for older apps.
+- Only mono and stereo are compressed; other layouts fall back to PCM. Opus is always 48 kHz, so other capture rates are resampled.
+- The Windows GUI server doesn't have this option yet.
+
+
 ## Configure Firewall Rules on Linux
 ### Add rules
 ```sh

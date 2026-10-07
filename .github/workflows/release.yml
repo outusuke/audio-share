@@ -113,7 +113,7 @@ jobs:
       
       - run: vcpkg integrate install
       
-      - run: vcpkg install asio protobuf cxxopts
+      - run: vcpkg install asio protobuf cxxopts opus
       
       - run: vcpkg install spdlog[wchar] wil
         if: ${{ matrix.os == 'windows-latest' }}
