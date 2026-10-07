@@ -93,8 +93,15 @@ public:
         encoding_t encoding = encoding_t::encoding_default;
         int channels = 0;
         int sample_rate = 0;
+#ifdef AUDIO_SHARE_WITH_OPUS
+        compression_t compression = compression_t::compression_opus; // Opus unless asked otherwise
+#else
         compression_t compression = compression_t::compression_none;
+#endif
         int bitrate = 128000; // bits per second, only used by compressed streams
+        // Stop sending audio after this much continuous silence (saves the client's battery).
+        // Streaming resumes as soon as sound is captured again. 0 disables.
+        int silence_timeout_ms = 2000;
     };
 
     audio_manager();

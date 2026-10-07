@@ -30,6 +30,7 @@
 
 #include "audio_manager.hpp"
 #include "opus_encoder.hpp"
+#include "silence_detector.hpp"
 
 class network_manager : public std::enable_shared_from_this<network_manager>
 {
@@ -84,6 +85,7 @@ private:
     bool ensure_codec();
     std::string get_wire_format_binary();
     void send_segments(segment_list_t seg_list);
+    bool should_transmit(const char* data, size_t count);
 
 public:
     void broadcast_audio_data(const char* data, size_t count, int block_align);
@@ -104,6 +106,14 @@ private:
     std::mutex _codec_mutex;
     bool _codec_resolved = false;
     audio_manager::AudioFormat _wire_format;
+
+    // Silence gating (only touched from the capture thread). While the captured audio
+    // stays silent for `_silence_timeout`, nothing is sent so the client can idle.
+    std::chrono::milliseconds _silence_timeout { 0 };
+    audio_manager::AudioFormat::Encoding _capture_encoding = audio_manager::AudioFormat::ENCODING_INVALID;
+    bool _silent_tracking = false;
+    bool _idle = false;
+    std::chrono::steady_clock::time_point _silent_since;
 #ifdef AUDIO_SHARE_WITH_OPUS
     std::unique_ptr<opus_stream_encoder> _opus_encoder;
 #endif
