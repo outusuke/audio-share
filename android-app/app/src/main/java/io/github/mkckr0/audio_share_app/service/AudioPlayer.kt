@@ -23,6 +23,7 @@ import android.media.AudioTrack
 import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -50,6 +51,7 @@ import io.github.mkckr0.audio_share_app.model.networkConfigDataStore
 import io.github.mkckr0.audio_share_app.pb.Client
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
@@ -97,6 +99,10 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
 
     companion object {
         var message by mutableStateOf("")
+
+        // The server stops streaming after silence (2 s by default), so this must stay well above
+        // normal packet jitter but low enough to let the audio output idle quickly.
+        private const val IDLE_TIMEOUT_MS = 1500L
     }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
@@ -187,6 +193,12 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
         private val tag = NetClientCallBack::class.simpleName
 
         override val scope: CoroutineScope = MainScope() + CoroutineName("NetClientCallbackScope")
+
+        // The server stops sending while nothing is playing. Pause the AudioTrack in that
+        // case so the audio hardware can idle too, and restart it when data comes back.
+        private var lastDataTime = SystemClock.elapsedRealtime()
+        private var audioIdle = false
+        private var idleWatchdog: Job? = null
 
         override suspend fun log(message: String) {
 //            Log.d(tag, "logMessage: $message")
@@ -296,6 +308,8 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
             }
 
             audioTrack.play()
+            lastDataTime = SystemClock.elapsedRealtime()
+            audioIdle = false
         }
 
         override suspend fun onPlaybackStarted() {
@@ -305,10 +319,35 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
             invalidateState()
             Log.d(tag, "onPlaybackStarted")
             message = context.getString(R.string.label_started)
+            startIdleWatchdog()
+        }
+
+        private fun startIdleWatchdog() {
+            idleWatchdog?.cancel()
+            lastDataTime = SystemClock.elapsedRealtime()
+            idleWatchdog = scope.launch {
+                while (true) {
+                    delay(1.seconds)
+                    if (!audioIdle && SystemClock.elapsedRealtime() - lastDataTime > IDLE_TIMEOUT_MS) {
+                        audioIdle = true
+                        Log.d(tag, "no audio data, pausing AudioTrack")
+                        _audioTrack?.run {
+                            pause()
+                            flush()
+                        }
+                    }
+                }
+            }
         }
 
         override suspend fun onReceiveAudioData(audioData: ByteBuffer) {
 //            Log.d(tag, "${audioData.remaining()}")
+            lastDataTime = SystemClock.elapsedRealtime()
+            if (audioIdle) {
+                audioIdle = false
+                Log.d(tag, "audio data again, resuming AudioTrack")
+                _audioTrack?.play()
+            }
             val decoder = _opusDecoder
             if (decoder != null) {
                 decoder.decode(audioData) { pcm, size ->

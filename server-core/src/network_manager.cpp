@@ -18,6 +18,7 @@
 #include "formatter.hpp"
 #include "audio_manager.hpp"
 
+#include <algorithm>
 #include <list>
 #include <ranges>
 #include <coroutine>
@@ -152,6 +153,9 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
         _requested_compression = capture_config.compression;
         _requested_bitrate = capture_config.bitrate;
         _codec_resolved = false;
+        _silence_timeout = std::chrono::milliseconds(std::max(0, capture_config.silence_timeout_ms));
+        _silent_tracking = false;
+        _idle = false;
 #ifdef AUDIO_SHARE_WITH_OPUS
         _opus_encoder.reset();
 #endif
@@ -421,6 +425,7 @@ bool network_manager::ensure_codec()
     }
 
     _wire_format = *format;
+    _capture_encoding = format->encoding();
 
 #ifdef AUDIO_SHARE_WITH_OPUS
     if (_requested_compression == audio_manager::compression_t::compression_opus) {
@@ -458,6 +463,10 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
         return;
     }
     // spdlog::trace("broadcast_audio_data count: {}", count);
+
+    if (!should_transmit(data, count)) {
+        return;
+    }
 
     segment_list_t seg_list;
 
@@ -501,4 +510,35 @@ void network_manager::send_segments(segment_list_t seg_list)
             }
         }
     });
+}
+
+bool network_manager::should_transmit(const char* data, size_t count)
+{
+    if (_silence_timeout.count() <= 0 || !ensure_codec()) {
+        return true;
+    }
+
+    if (!silence::is_silent((const uint8_t*)data, count, _capture_encoding)) {
+        if (_idle) {
+            spdlog::info("audio detected, streaming resumed");
+            _idle = false;
+        }
+        _silent_tracking = false;
+        return true;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (!_silent_tracking) {
+        _silent_tracking = true;
+        _silent_since = now;
+    }
+    if (_idle) {
+        return false;
+    }
+    if (now - _silent_since >= _silence_timeout) {
+        spdlog::info("no audio for {} ms, streaming paused until sound is played", _silence_timeout.count());
+        _idle = true;
+        return false;
+    }
+    return true; // short silence (pauses between tracks): keep the stream continuous
 }

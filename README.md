@@ -70,13 +70,26 @@ Audio Share can share Windows/Linux computer's audio to Android phone over netwo
 
 
 ## Audio Compression (Opus)
-By default the server sends uncompressed PCM, which can take several Mbit/s and may stutter on weak Wi-Fi. Start the command line server with `--compression=opus` to send 20 ms Opus packets instead (default 128 kbit/s, change it with `--bitrate=<kbps>`):
+The command line server sends 20 ms Opus packets by default (128 kbit/s, change it with `--bitrate=<kbps>`), which is far lighter on Wi-Fi than raw PCM. To send uncompressed PCM instead, pass `--compression=none`:
 ```sh
-as-cmd -b --compression=opus --bitrate=96
+as-cmd -b                          # Opus, 128 kbit/s
+as-cmd -b --bitrate=96             # Opus, 96 kbit/s
+as-cmd -b --compression=none       # raw PCM, for older apps
 ```
-- The phone app must support Opus, since the protocol has no negotiation. Leave the option off for older apps.
+- The phone app must support Opus, since the protocol has no negotiation. Use `--compression=none` for older apps.
 - Only mono and stereo are compressed; other layouts fall back to PCM. Opus is always 48 kHz, so other capture rates are resampled.
+- If the server was built without Opus support, it defaults to PCM.
 - The Windows GUI server doesn't have this option yet.
+
+
+## Battery Saving (Silence Detection)
+When nothing is playing on the computer, the server stops sending audio after 2 seconds of silence and starts again as soon as sound is captured. The phone app pauses its audio output while no data arrives, so both the Wi-Fi radio and the audio hardware can idle.
+```sh
+as-cmd -b --silence-timeout=5      # wait 5 s of silence before pausing
+as-cmd -b --silence-timeout=0      # always stream, even silence
+```
+- Short pauses (for example between tracks) shorter than the timeout don't interrupt the stream.
+- The TCP heartbeat (every 3 s) keeps running so the connection stays up; resuming is instant.
 
 
 ## Configure Firewall Rules on Linux
