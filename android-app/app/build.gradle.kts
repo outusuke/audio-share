@@ -44,14 +44,21 @@ android {
 
     signingConfigs {
         create("release") {
+            val propsFile = rootProject.file("keystore.properties")
             val keystoreProperties = Properties().apply {
-                load(rootProject.file("keystore.properties").inputStream())
+                if (propsFile.exists()) load(propsFile.inputStream())
             }
-            storeFile = file(keystoreProperties.getProperty("storeFile"))
-            keyAlias = keystoreProperties.getProperty("keyAlias")
-            storePassword = keystoreProperties.getProperty("storePassword")
-            keyPassword = keystoreProperties.getProperty("keyPassword")
-            enableV3Signing = true
+            val alias = keystoreProperties.getProperty("keyAlias")
+            if (!alias.isNullOrBlank()) {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                keyAlias = alias
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                enableV3Signing = true
+            } else {
+                // No secrets (e.g. a fork): fall back to the debug keystore
+                initWith(getByName("debug"))
+            }
         }
     }
 
