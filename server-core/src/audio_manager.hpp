@@ -26,6 +26,7 @@
 #endif
 
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <thread>
 
@@ -69,11 +70,39 @@ public:
         return is;
     }
 
+    enum class compression_t {
+        compression_none = 0,
+        compression_opus = 1,
+        compression_invalid = 2,
+    };
+
+    friend std::istream& operator>>(std::istream& is, compression_t& c) {
+        std::string s;
+        is >> s;
+        if (s == "none") {
+            c = compression_t::compression_none;
+        } else if (s == "opus") {
+            c = compression_t::compression_opus;
+        } else {
+            c = compression_t::compression_invalid;
+        }
+        return is;
+    }
+
     struct capture_config {
         std::string endpoint_id;
         encoding_t encoding = encoding_t::encoding_default;
         int channels = 0;
         int sample_rate = 0;
+#ifdef AUDIO_SHARE_WITH_OPUS
+        compression_t compression = compression_t::compression_opus; // Opus unless asked otherwise
+#else
+        compression_t compression = compression_t::compression_none;
+#endif
+        int bitrate = 128000; // bits per second, only used by compressed streams
+        // Stop sending audio after this much continuous silence (saves the client's battery).
+        // Streaming resumes as soon as sound is captured again. 0 disables.
+        int silence_timeout_ms = 2000;
     };
 
     audio_manager();
@@ -84,6 +113,8 @@ public:
     void do_loopback_recording(std::shared_ptr<network_manager> network_manager, const capture_config& config);
 
     std::string get_format_binary();
+    std::shared_ptr<const AudioFormat> get_format() const;
+    void publish_format();
 
     endpoint_list_t get_endpoint_list();
 
@@ -93,6 +124,8 @@ private:
     std::thread _record_thread;
     std::atomic_bool _stopped;
     std::shared_ptr<AudioFormat> _format;
+    mutable std::mutex _format_mutex;
+    std::shared_ptr<const AudioFormat> _published_format;
 };
 
 #endif // !BASIC_AUDIO_MANAGER_HPP

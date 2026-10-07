@@ -69,6 +69,30 @@ Audio Share can share Windows/Linux computer's audio to Android phone over netwo
 - Install APK to your phone and open it. Modify the "Host" part to make sure it's same as the value of previous step, such as `192.168.xxx.xxx`. Click "▶" button and enjoy the audio🎶.
 
 
+## Audio Compression (Opus)
+The command line server sends 20 ms Opus packets by default (128 kbit/s, change it with `--bitrate=<kbps>`), which is far lighter on Wi-Fi than raw PCM. To send uncompressed PCM instead, pass `--compression=none`:
+```sh
+as-cmd -b                          # Opus, 128 kbit/s
+as-cmd -b --bitrate=96             # Opus, 96 kbit/s
+as-cmd -b --compression=none       # raw PCM, for older apps
+```
+- The app asks for Opus when it connects, and the server only sends it to apps that asked. Older apps connected to the same server just get uncompressed PCM.
+- Layouts with more than two channels are downmixed to stereo. Opus is always 48 kHz, so other capture rates are resampled.
+- The app shows the codec, lost and late packets, dropped packets and underruns under the playback status.
+- If the server was built without Opus support, it defaults to PCM.
+- The Windows GUI server doesn't have this option yet.
+
+
+## Battery Saving (Silence Detection)
+When nothing is playing on the computer, the server stops sending audio after 2 seconds of silence and starts again as soon as sound is captured. The phone app pauses its audio output while no data arrives, so both the Wi-Fi radio and the audio hardware can idle.
+```sh
+as-cmd -b --silence-timeout=5      # wait 5 s of silence before pausing
+as-cmd -b --silence-timeout=0      # always stream, even silence
+```
+- Short pauses (for example between tracks) shorter than the timeout don't interrupt the stream.
+- The TCP heartbeat (every 3 s) keeps running so the connection stays up; resuming is instant.
+
+
 ## Configure Firewall Rules on Linux
 ### Add rules
 ```sh

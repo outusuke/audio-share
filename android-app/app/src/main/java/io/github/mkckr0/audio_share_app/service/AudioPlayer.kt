@@ -21,8 +21,10 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.audiofx.LoudnessEnhancer
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -50,6 +52,7 @@ import io.github.mkckr0.audio_share_app.model.networkConfigDataStore
 import io.github.mkckr0.audio_share_app.pb.Client
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
@@ -87,14 +90,25 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
     private var _audioTrack: AudioTrack? = null
     private val audioTrack get() = _audioTrack!!
 
+    @Volatile
+    private var _pipeline: AudioPipeline? = null
+    private var _wifiLock: WifiManager.WifiLock? = null
+
     private var _loudnessEnhancer: LoudnessEnhancer? = null
-    private val loudnessEnhancer get() = _loudnessEnhancer!!
 
     private val scope: CoroutineScope = MainScope()
     private val retryScope: CoroutineScope = MainScope()
 
     companion object {
         var message by mutableStateOf("")
+
+        private const val MAX_QUEUED_MS = 200
+        private const val OPUS_PACKET_MS = 20
+        private const val PCM_DATAGRAM_BYTES = 1400
+
+        // The server stops streaming after silence (2 s by default), so this must stay well above
+        // normal packet jitter but low enough to let the audio output idle quickly.
+        private const val IDLE_TIMEOUT_MS = 1500L
     }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
@@ -131,6 +145,7 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                     .setPlayWhenReady(true, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                     .build()
 
+                acquireWifiLock()
                 netClient.start(
                     host = host,
                     port = port,
@@ -141,6 +156,8 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                     .setPlayWhenReady(false, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                     .build()
                 netClient.stop()
+                releaseAudio()
+                releaseWifiLock()
                 retryScope.coroutineContext.cancelChildren()
                 message = context.getString(R.string.label_paused)
             }
@@ -154,6 +171,8 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
             .setPlayWhenReady(false, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .build()
         netClient.stop()
+        releaseAudio()
+        releaseWifiLock()
         retryScope.coroutineContext.cancelChildren()
         message = context.getString(R.string.label_stopped)
         return immediateVoidFuture()
@@ -163,17 +182,9 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
         Log.d(tag, "handleRelease")
         scope.cancel()
         netClient.stop()
+        releaseAudio()
+        releaseWifiLock()
         retryScope.cancel()
-        _loudnessEnhancer?.run {
-            release()
-        }
-        _loudnessEnhancer = null
-        _audioTrack?.run {
-            pause()
-            flush()
-            release()
-        }
-        _audioTrack = null
         _state = State.Builder().build()
         return immediateVoidFuture()
     }
@@ -182,6 +193,12 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
         private val tag = NetClientCallBack::class.simpleName
 
         override val scope: CoroutineScope = MainScope() + CoroutineName("NetClientCallbackScope")
+
+        // The server stops sending while nothing is playing. Pause the AudioTrack in that
+        // case so the audio hardware can idle too, and restart it when data comes back.
+        private var lastDataTime = SystemClock.elapsedRealtime()
+        private var audioIdle = false
+        private var idleWatchdog: Job? = null
 
         override suspend fun log(message: String) {
 //            Log.d(tag, "logMessage: $message")
@@ -224,8 +241,26 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
 
             Log.i(
                 tag,
-                "encoding: $encoding, channelMask: $channelMask, sampleRate: ${format.sampleRate}"
+                "encoding: $encoding, channelMask: $channelMask, sampleRate: ${format.sampleRate}, compression: ${format.compression}"
             )
+
+            releaseAudio()
+            var opusDecoder: OpusDecoder? = null
+            try {
+                when (format.compression) {
+                    Client.AudioFormat.Compression.COMPRESSION_NONE -> {}
+                    Client.AudioFormat.Compression.COMPRESSION_OPUS -> {
+                        // MediaCodec decodes to 16-bit PCM, which is what the server declares.
+                        opusDecoder = OpusDecoder(format.sampleRate, format.channels, format.opusPreSkip)
+                    }
+
+                    else -> throw Exception("Unsupported compression ${format.compression}, please update the app")
+                }
+            } catch (e: Exception) {
+                Log.e(tag, e.stackTraceToString())
+                onError(e.message, e)
+                return
+            }
 
             val minBufferSize =
                 AudioTrack.getMinBufferSize(format.sampleRate, channelMask, encoding)
@@ -240,7 +275,12 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                 )).toInt()
             Log.i(tag, "buffer scale: $bufferScale")
 
-            _audioTrack = AudioTrack.Builder()
+            val loudnessEnhancerGain =
+                (audioConfig[floatPreferencesKey(AudioConfigKeys.LOUDNESS_ENHANCER)]
+                    ?: context.getFloat(R.string.default_loudness_enhancer)).toInt()
+            Log.i(tag, "loudness enhancer: ${loudnessEnhancerGain}mB")
+
+            val trackBuilder = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -256,24 +296,45 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                 )
                 .setBufferSizeInBytes(minBufferSize * bufferScale)
                 .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
+            // Effects generally cannot be attached to fast-mixer (low-latency) tracks, so only
+            // request low latency when no loudness enhancer is wanted.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && loudnessEnhancerGain <= 0) {
+                trackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+            }
+            _audioTrack = trackBuilder.build()
 
             val volume = audioConfig[floatPreferencesKey(AudioConfigKeys.VOLUME)]
                 ?: context.getFloat(R.string.default_volume)
             Log.i(tag, "volume: $volume")
             audioTrack.setVolume(volume)
 
-            val loudnessEnhancerGain =
-                (audioConfig[floatPreferencesKey(AudioConfigKeys.LOUDNESS_ENHANCER)]
-                    ?: context.getFloat(R.string.default_loudness_enhancer)).toInt()
-            Log.i(tag, "loudness enhancer: ${loudnessEnhancerGain}mB")
             if (loudnessEnhancerGain > 0) {
-                _loudnessEnhancer = LoudnessEnhancer(audioTrack.audioSessionId)
-                loudnessEnhancer.setTargetGain(loudnessEnhancerGain)
-                loudnessEnhancer.setEnabled(true)
+                var enhancer: LoudnessEnhancer? = null
+                try {
+                    enhancer = LoudnessEnhancer(audioTrack.audioSessionId)
+                    enhancer.setTargetGain(loudnessEnhancerGain)
+                    enhancer.enabled = true
+                    _loudnessEnhancer = enhancer
+                } catch (e: Exception) {
+                    // e.g. RuntimeException ERROR_NO_INIT: the device can't provide the effect.
+                    // Keep playing without it instead of crashing.
+                    Log.w(tag, "loudness enhancer unavailable, continuing without it", e)
+                    try { enhancer?.release() } catch (_: Exception) {}
+                    _loudnessEnhancer = null
+                }
             }
 
-            audioTrack.play()
+            val bytesPerFrame = bytesPerSample(encoding) * format.channels
+            val maxQueued = if (opusDecoder != null) {
+                MAX_QUEUED_MS / OPUS_PACKET_MS
+            } else {
+                maxOf(MAX_QUEUED_MS / OPUS_PACKET_MS, format.sampleRate * bytesPerFrame * MAX_QUEUED_MS / 1000 / PCM_DATAGRAM_BYTES)
+            }
+            _pipeline = AudioPipeline(audioTrack, opusDecoder, bytesPerFrame, maxQueued) { stats ->
+                message = "${context.getString(R.string.label_started)} · $stats"
+            }.also { it.start() }
+            lastDataTime = SystemClock.elapsedRealtime()
+            audioIdle = false
         }
 
         override suspend fun onPlaybackStarted() {
@@ -283,11 +344,36 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
             invalidateState()
             Log.d(tag, "onPlaybackStarted")
             message = context.getString(R.string.label_started)
+            startIdleWatchdog()
         }
 
-        override suspend fun onReceiveAudioData(audioData: ByteBuffer) {
+        private fun startIdleWatchdog() {
+            idleWatchdog?.cancel()
+            lastDataTime = SystemClock.elapsedRealtime()
+            idleWatchdog = scope.launch {
+                while (true) {
+                    delay(1.seconds)
+                    if (!audioIdle && SystemClock.elapsedRealtime() - lastDataTime > IDLE_TIMEOUT_MS) {
+                        audioIdle = true
+                        Log.d(tag, "no audio data, pausing AudioTrack")
+                        _audioTrack?.run {
+                            pause()
+                            flush()
+                        }
+                    }
+                }
+            }
+        }
+
+        override fun onReceiveAudioData(audioData: ByteBuffer) {
 //            Log.d(tag, "${audioData.remaining()}")
-            audioTrack.write(audioData, audioData.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+            lastDataTime = SystemClock.elapsedRealtime()
+            if (audioIdle) {
+                audioIdle = false
+                Log.d(tag, "audio data again, resuming AudioTrack")
+                _audioTrack?.play()
+            }
+            _pipeline?.submit(audioData)
         }
 
         override suspend fun onError(message: String?, cause: Throwable?) {
@@ -322,6 +408,65 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                 )
             }
         }
+    }
+
+    // the pipeline owns the Opus decoder and has to stop before the track goes away
+    private fun releaseAudio() {
+        _pipeline?.shutdown()
+        _pipeline = null
+        _loudnessEnhancer?.run {
+            release()
+        }
+        _loudnessEnhancer = null
+        _audioTrack?.run {
+            try {
+                pause()
+                flush()
+            } catch (e: IllegalStateException) {
+                Log.w(tag, e.stackTraceToString())
+            }
+            release()
+        }
+        _audioTrack = null
+    }
+
+    private fun bytesPerSample(encoding: Int): Int = when (encoding) {
+        AudioFormat.ENCODING_PCM_8BIT -> 1
+        AudioFormat.ENCODING_PCM_16BIT -> 2
+        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+        else -> 4
+    }
+
+    // Wi-Fi power save adds latency spikes to the UDP stream
+    private fun acquireWifiLock() {
+        if (_wifiLock?.isHeld == true) {
+            return
+        }
+        try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                @Suppress("DEPRECATION")
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            _wifiLock = wifiManager.createWifiLock(mode, "AudioShare").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (e: Exception) {
+            Log.w(tag, e.stackTraceToString())
+        }
+    }
+
+    private fun releaseWifiLock() {
+        try {
+            _wifiLock?.takeIf { it.isHeld }?.release()
+        } catch (e: Exception) {
+            Log.w(tag, e.stackTraceToString())
+        }
+        _wifiLock = null
     }
 
     /**

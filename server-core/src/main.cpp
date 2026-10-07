@@ -16,9 +16,16 @@ int main(int argc, char* argv[])
     help_string += fmt::format("  {} -b\n", AUDIO_SHARE_BIN_NAME);
     help_string += fmt::format("  {} --bind={}\n", AUDIO_SHARE_BIN_NAME, default_address.empty() ? "192.168.3.2": default_address);
     help_string += fmt::format("  {} --bind={} --encoding=f32 --channels=2 --sample-rate=48000\n", AUDIO_SHARE_BIN_NAME, default_address.empty() ? "192.168.3.2": default_address);
+    help_string += fmt::format("  {} --bind={} --compression=opus --bitrate=96 --silence-timeout=2\n", AUDIO_SHARE_BIN_NAME, default_address.empty() ? "192.168.3.2": default_address);
     help_string += fmt::format("  {} -l\n", AUDIO_SHARE_BIN_NAME);
     help_string += fmt::format("  {} --list-encoding\n", AUDIO_SHARE_BIN_NAME);
     cxxopts::Options options(AUDIO_SHARE_BIN_NAME, help_string);
+
+#ifdef AUDIO_SHARE_WITH_OPUS
+    const char* default_compression = "opus";
+#else
+    const char* default_compression = "none";
+#endif
 
     // clang-format off
     options.add_options()
@@ -28,6 +35,9 @@ int main(int argc, char* argv[])
         ("e,endpoint", "Specify the endpoint id. If not set or set \"default\", will use default", cxxopts::value<string>()->default_value("default"), "[endpoint]")
         ("encoding", "Specify the capture encoding. If not set or set \"default\", will use default", cxxopts::value<audio_manager::encoding_t>()->default_value("default"), "[encoding]")
         ("list-encoding", "List available encoding")
+        ("compression", "Compress the audio stream: \"none\" or \"opus\". Opus is the default when this build supports it. Clients without Opus support still get raw PCM. More than two channels are downmixed to stereo. The Opus stream is always 48000 Hz, other capture rates are resampled", cxxopts::value<audio_manager::compression_t>()->default_value(default_compression), "[none|opus]")
+        ("silence-timeout", "Stop sending audio after this many seconds of silence and resume when sound plays again (saves the phone's battery). 0 disables", cxxopts::value<double>()->default_value("2"), "[seconds]")
+        ("bitrate", "Opus bitrate in kbit/s, only used with --compression=opus", cxxopts::value<int>()->default_value("128"), "[kbps]")
         ("channels", "Specify the capture channels. If not set or set \"0\", will use default", cxxopts::value<int>()->default_value("0"), "[channels]")
         ("sample-rate", "Specify the capture sample rate(Hz). If not set or set \"0\", will use default. The common values are 44100, 48000, etc.", cxxopts::value<int>()->default_value("0"), "[sample_rate]")
         ("V,verbose", "Set log level to \"trace\"")
@@ -99,6 +109,23 @@ int main(int argc, char* argv[])
             capture_config.encoding = result["encoding"].as<audio_manager::encoding_t>();
             capture_config.channels = result["channels"].as<int>();
             capture_config.sample_rate = result["sample-rate"].as<int>();
+            capture_config.compression = result["compression"].as<audio_manager::compression_t>();
+            if (capture_config.compression == audio_manager::compression_t::compression_invalid) {
+                std::cerr << "invalid --compression value, expected \"none\" or \"opus\"\n";
+                return EXIT_FAILURE;
+            }
+            capture_config.bitrate = result["bitrate"].as<int>() * 1000;
+            if (capture_config.bitrate < 6000 || capture_config.bitrate > 510000) {
+                std::cerr << "--bitrate must be between 6 and 510 (kbit/s)\n";
+                return EXIT_FAILURE;
+            }
+
+            const double silence_timeout = result["silence-timeout"].as<double>();
+            if (silence_timeout < 0 || silence_timeout > 3600) {
+                std::cerr << "--silence-timeout must be between 0 and 3600 (seconds)\n";
+                return EXIT_FAILURE;
+            }
+            capture_config.silence_timeout_ms = (int)(silence_timeout * 1000);
 
             auto network_manager = std::make_shared<class network_manager>(audio_manager);
 
