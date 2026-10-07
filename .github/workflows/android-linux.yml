@@ -1,0 +1,97 @@
+name: Build Android + Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_app:
+    name: Build Android App
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      # Optional: only used if you have set the signing secrets.
+      - name: Create release.jks
+        run: mkdir -p ~/.android && echo "$release_jks" | base64 -d > ~/.android/release.jks
+        env:
+          release_jks: ${{ secrets.RELEASE_JKS }}
+      - name: Create keystore.properties
+        run: echo -e "storeFile=$(ls ~/.android/release.jks)\nstorePassword=${store_pass}\nkeyAlias=${key_alias}\nkeyPassword=${key_pass}\n" > keystore.properties
+        env:
+          store_pass: ${{ secrets.STORE_PASS }}
+          key_alias: ${{ secrets.KEY_ALIAS }}
+          key_pass: ${{ secrets.KEY_PASS }}
+
+      # Fallback signing key when no secrets are set (e.g. in a fork).
+      - name: Create debug keystore
+        run: |
+          ks=~/.config/.android/debug.keystore
+          if [ ! -f "$ks" ]; then
+            mkdir -p "$(dirname "$ks")"
+            keytool -genkeypair -keystore "$ks" -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - run: chmod +x gradlew
+      - run: ./gradlew :app:assembleRelease
+
+      - name: Checksum
+        run: cd app/build/outputs/apk/release/ && sha256sum *.apk | tee $(ls *.apk).sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: |
+            android-app/app/build/outputs/apk/release/*.apk
+            android-app/app/build/outputs/apk/release/*.sha256
+
+  build_server_core_linux:
+    name: Build server-core (Linux)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: server-core
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-linux
+      VCPKG_BINARY_SOURCES: clear
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Deps
+        run: sudo apt update && sudo apt install -y libpipewire-0.3-dev
+
+      - uses: lukka/get-cmake@latest
+
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+
+      - run: vcpkg integrate install
+
+      - run: vcpkg install asio protobuf cxxopts opus spdlog
+
+      - uses: lukka/run-cmake@v10
+        with:
+          cmakeListsTxtPath: ${{ github.workspace }}/server-core/CMakeLists.txt
+          configurePreset: linux-Release
+          buildPreset: linux-Release
+
+      - name: Pack
+        run: bash pack.sh linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-core-linux
+          path: |
+            server-core/out/install/*.sha256
+            server-core/out/install/*.tar.gz
