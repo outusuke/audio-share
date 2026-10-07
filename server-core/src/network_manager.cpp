@@ -147,6 +147,21 @@ std::string network_manager::select_default_address(const std::vector<std::strin
 
 void network_manager::start_server(const std::string& host, uint16_t port, const audio_manager::capture_config& capture_config)
 {
+    {
+        std::lock_guard lock(_codec_mutex);
+        _requested_compression = capture_config.compression;
+        _requested_bitrate = capture_config.bitrate;
+        _codec_resolved = false;
+#ifdef AUDIO_SHARE_WITH_OPUS
+        _opus_encoder.reset();
+#endif
+    }
+#ifndef AUDIO_SHARE_WITH_OPUS
+    if (capture_config.compression == audio_manager::compression_t::compression_opus) {
+        spdlog::warn("this build has no Opus support, audio will be sent uncompressed");
+    }
+#endif
+
     _ioc = std::make_shared<asio::io_context>();
     {
         ip::tcp::endpoint endpoint { ip::make_address(host), port };
@@ -217,7 +232,7 @@ asio::awaitable<void> network_manager::read_loop(std::shared_ptr<tcp_socket> pee
         spdlog::trace("cmd {}", (uint32_t)cmd);
 
         if (cmd == cmd_t::cmd_get_format) {
-            auto format = _audio_manager->get_format_binary();
+            auto format = get_wire_format_binary();
             auto size = (uint32_t)format.size();
             std::array<asio::const_buffer, 3> buffers = {
                 asio::buffer(&cmd, sizeof(cmd)),
@@ -393,6 +408,50 @@ void network_manager::fill_udp_peer(int id, asio::ip::udp::endpoint udp_peer)
     spdlog::info("{} fill udp peer id:{} tcp://{} udp://{}", __func__, id, it->first->remote_endpoint(), udp_peer);
 }
 
+bool network_manager::ensure_codec()
+{
+    std::lock_guard lock(_codec_mutex);
+    if (_codec_resolved) {
+        return true;
+    }
+
+    auto format = _audio_manager->get_format();
+    if (!format || format->channels() == 0) {
+        return false; // capture format isn't known yet
+    }
+
+    _wire_format = *format;
+
+#ifdef AUDIO_SHARE_WITH_OPUS
+    if (_requested_compression == audio_manager::compression_t::compression_opus) {
+        std::string error;
+        auto encoder = opus_stream_encoder::create(format->encoding(), format->channels(), format->sample_rate(), _requested_bitrate, error);
+        if (encoder) {
+            // The client decodes Opus to 16-bit PCM at the encoder's output rate.
+            _wire_format.set_encoding(audio_manager::AudioFormat::ENCODING_PCM_16BIT);
+            _wire_format.set_sample_rate(encoder->output_sample_rate());
+            _wire_format.set_compression(audio_manager::AudioFormat::COMPRESSION_OPUS);
+            _opus_encoder = std::move(encoder);
+            spdlog::info("opus compression enabled, bitrate: {} bps", _requested_bitrate);
+        } else {
+            spdlog::warn("opus compression disabled, sending uncompressed audio: {}", error);
+        }
+    }
+#endif
+
+    spdlog::info("wire AudioFormat:\n{}", _wire_format.DebugString());
+    _codec_resolved = true;
+    return true;
+}
+
+std::string network_manager::get_wire_format_binary()
+{
+    if (ensure_codec()) {
+        return _wire_format.SerializeAsString();
+    }
+    return _audio_manager->get_format_binary();
+}
+
 void network_manager::broadcast_audio_data(const char* data, size_t count, int block_align)
 {
     if (count <= 0) {
@@ -400,12 +459,23 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
     }
     // spdlog::trace("broadcast_audio_data count: {}", count);
 
+    segment_list_t seg_list;
+
+#ifdef AUDIO_SHARE_WITH_OPUS
+    if (ensure_codec() && _opus_encoder) {
+        // one Opus packet per UDP datagram, so the client can decode each independently
+        _opus_encoder->encode((const uint8_t*)data, count, [&seg_list](const uint8_t* packet, size_t size) {
+            seg_list.push_back(std::make_shared<std::vector<uint8_t>>(packet, packet + size));
+        });
+        send_segments(std::move(seg_list));
+        return;
+    }
+#endif
+
     // divide udp frame
     constexpr int mtu = 1492;
     int max_seg_size = mtu - 20 - 8;
     max_seg_size -= max_seg_size % block_align; // one single sample can't be divided
-
-    std::list<std::shared_ptr<std::vector<uint8_t>>> seg_list;
 
     for (int begin_pos = 0; begin_pos < count;) {
         const int real_seg_size = std::min((int)count - begin_pos, max_seg_size);
@@ -413,6 +483,15 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
         std::copy((const uint8_t*)data + begin_pos, (const uint8_t*)data + begin_pos + real_seg_size, seg->begin());
         seg_list.push_back(seg);
         begin_pos += real_seg_size;
+    }
+
+    send_segments(std::move(seg_list));
+}
+
+void network_manager::send_segments(segment_list_t seg_list)
+{
+    if (seg_list.empty()) {
+        return;
     }
 
     _ioc->post([seg_list = std::move(seg_list), self = shared_from_this()] {

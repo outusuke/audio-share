@@ -21,12 +21,15 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <list>
+#include <mutex>
 
 #include "pre_asio.hpp"
 #include <asio.hpp>
 #include <asio/use_awaitable.hpp>
 
 #include "audio_manager.hpp"
+#include "opus_encoder.hpp"
 
 class network_manager : public std::enable_shared_from_this<network_manager>
 {
@@ -77,6 +80,11 @@ private:
     playing_peer_list_t::iterator remove_playing_peer(std::shared_ptr<tcp_socket>& peer);
     void fill_udp_peer(int id, asio::ip::udp::endpoint udp_peer);
 
+    using segment_list_t = std::list<std::shared_ptr<std::vector<uint8_t>>>;
+    bool ensure_codec();
+    std::string get_wire_format_binary();
+    void send_segments(segment_list_t seg_list);
+
 public:
     void broadcast_audio_data(const char* data, size_t count, int block_align);
     
@@ -88,6 +96,17 @@ private:
     std::unique_ptr<udp_socket> _udp_server;
     playing_peer_list_t _playing_peer_list;
     constexpr static auto _heartbeat_timeout = std::chrono::seconds(5);
+
+    // Compression state. Requested in start_server(), resolved lazily once the
+    // capture format is known (see ensure_codec()).
+    audio_manager::compression_t _requested_compression = audio_manager::compression_t::compression_none;
+    int _requested_bitrate = 0;
+    std::mutex _codec_mutex;
+    bool _codec_resolved = false;
+    audio_manager::AudioFormat _wire_format;
+#ifdef AUDIO_SHARE_WITH_OPUS
+    std::unique_ptr<opus_stream_encoder> _opus_encoder;
+#endif
 };
 
 #endif // !NETWORK_MANAGER_HPP

@@ -30,6 +30,16 @@ jobs:
           key_alias: ${{ secrets.KEY_ALIAS }}
           key_pass: ${{ secrets.KEY_PASS }}
 
+      - name: Create debug keystore (fallback when no signing secrets)
+        run: |
+          ks=~/.config/.android/debug.keystore
+          if [ ! -f "$ks" ]; then
+            mkdir -p "$(dirname "$ks")"
+            keytool -genkeypair -keystore "$ks" -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - run: chmod +x gradlew
       - run: ./gradlew :app:assembleRelease
       - run: ./gradlew :app:signingReport
@@ -46,12 +56,13 @@ jobs:
 
   build_server_mfc:
     name: Build server-mfc
-    runs-on: windows-latest
+    runs-on: windows-2022
     defaults:
       run:
         working-directory: server-mfc
     env:
       VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+      VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +70,7 @@ jobs:
       
       - uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: 10b7a178346f3f0abef60cecd5130e295afd8da4
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
       
       - run: vcpkg integrate install
       
@@ -81,6 +92,7 @@ jobs:
   build_server_core:
     name: Build server-core
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-22.04]
         include:
@@ -98,22 +110,23 @@ jobs:
         working-directory: server-core
     env:
       VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+      VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
       
       - name: Install Linux Deps
-        run: sudo apt install libpipewire-0.3-dev
+        run: sudo apt update && sudo apt install -y libpipewire-0.3-dev
         if: ${{ matrix.os == 'ubuntu-22.04' }}
       
       - uses: lukka/get-cmake@latest
       
       - uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: 10b7a178346f3f0abef60cecd5130e295afd8da4
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
       
       - run: vcpkg integrate install
       
-      - run: vcpkg install asio protobuf cxxopts
+      - run: vcpkg install asio protobuf cxxopts opus
       
       - run: vcpkg install spdlog[wchar] wil
         if: ${{ matrix.os == 'windows-latest' }}

@@ -20,6 +20,7 @@ jobs:
         working-directory: server-core
     env:
       VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+      VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
       
@@ -30,11 +31,11 @@ jobs:
       
       - uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: 10b7a178346f3f0abef60cecd5130e295afd8da4
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
       
       - run: vcpkg integrate install
       
-      - run: vcpkg install asio protobuf cxxopts
+      - run: vcpkg install asio protobuf cxxopts opus
 
       - run: vcpkg install spdlog
       

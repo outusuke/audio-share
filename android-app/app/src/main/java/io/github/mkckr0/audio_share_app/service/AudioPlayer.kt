@@ -87,6 +87,8 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
     private var _audioTrack: AudioTrack? = null
     private val audioTrack get() = _audioTrack!!
 
+    private var _opusDecoder: OpusDecoder? = null
+
     private var _loudnessEnhancer: LoudnessEnhancer? = null
     private val loudnessEnhancer get() = _loudnessEnhancer!!
 
@@ -141,6 +143,7 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                     .setPlayWhenReady(false, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
                     .build()
                 netClient.stop()
+                releaseOpusDecoder()
                 retryScope.coroutineContext.cancelChildren()
                 message = context.getString(R.string.label_paused)
             }
@@ -154,6 +157,7 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
             .setPlayWhenReady(false, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .build()
         netClient.stop()
+        releaseOpusDecoder()
         retryScope.coroutineContext.cancelChildren()
         message = context.getString(R.string.label_stopped)
         return immediateVoidFuture()
@@ -163,6 +167,7 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
         Log.d(tag, "handleRelease")
         scope.cancel()
         netClient.stop()
+        releaseOpusDecoder()
         retryScope.cancel()
         _loudnessEnhancer?.run {
             release()
@@ -224,8 +229,25 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
 
             Log.i(
                 tag,
-                "encoding: $encoding, channelMask: $channelMask, sampleRate: ${format.sampleRate}"
+                "encoding: $encoding, channelMask: $channelMask, sampleRate: ${format.sampleRate}, compression: ${format.compression}"
             )
+
+            releaseOpusDecoder()
+            try {
+                when (format.compression) {
+                    Client.AudioFormat.Compression.COMPRESSION_NONE -> {}
+                    Client.AudioFormat.Compression.COMPRESSION_OPUS -> {
+                        // MediaCodec decodes to 16-bit PCM, which is what the server declares.
+                        _opusDecoder = OpusDecoder(format.sampleRate, format.channels)
+                    }
+
+                    else -> throw Exception("Unsupported compression ${format.compression}, please update the app")
+                }
+            } catch (e: Exception) {
+                Log.e(tag, e.stackTraceToString())
+                onError(e.message, e)
+                return
+            }
 
             val minBufferSize =
                 AudioTrack.getMinBufferSize(format.sampleRate, channelMask, encoding)
@@ -287,7 +309,14 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
 
         override suspend fun onReceiveAudioData(audioData: ByteBuffer) {
 //            Log.d(tag, "${audioData.remaining()}")
-            audioTrack.write(audioData, audioData.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+            val decoder = _opusDecoder
+            if (decoder != null) {
+                decoder.decode(audioData) { pcm, size ->
+                    audioTrack.write(pcm, size, AudioTrack.WRITE_NON_BLOCKING)
+                }
+            } else {
+                audioTrack.write(audioData, audioData.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+            }
         }
 
         override suspend fun onError(message: String?, cause: Throwable?) {
@@ -322,6 +351,11 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                 )
             }
         }
+    }
+
+    private fun releaseOpusDecoder() {
+        _opusDecoder?.release()
+        _opusDecoder = null
     }
 
     /**
