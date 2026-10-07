@@ -52,6 +52,7 @@ jobs:
         working-directory: server-mfc
     env:
       VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+      VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
 
@@ -98,6 +99,7 @@ jobs:
         working-directory: server-core
     env:
       VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+      VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
       
