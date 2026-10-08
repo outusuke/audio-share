@@ -12,6 +12,10 @@ jobs:
         working-directory: android-app
     steps:
       - uses: actions/checkout@v4
+      - name: Apply VERSION
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/apply_version.sh
 
       - uses: actions/setup-java@v4
         with:
@@ -66,6 +70,10 @@ jobs:
       VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
+      - name: Apply VERSION
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/apply_version.sh
 
       - name: Install Linux Deps
         run: sudo apt update && sudo apt install -y libpipewire-0.3-dev

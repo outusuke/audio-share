@@ -7,15 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  version-consistency:
-    name: Version files match VERSION
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash scripts/apply_version.sh
-      - name: Fail if a version file drifted
-        run: git diff --exit-code
-
   server-core-tests:
     name: server-core unit tests
     runs-on: ubuntu-22.04
