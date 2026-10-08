@@ -284,7 +284,9 @@ void network_manager::stop_server()
     if (_net_thread.joinable()) {
         _net_thread.join();
     }
+    spdlog::info("stopping audio capture");
     _audio_manager->stop();
+    spdlog::info("stopping encoder");
     _encode_stop = true;
     ++_capture_signal;
     _capture_signal.notify_one();

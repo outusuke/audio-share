@@ -4,7 +4,10 @@
 
 #include <cxxopts.hpp>
 #include <algorithm>
+#include <chrono>
 #include <csignal>
+#include <cstdlib>
+#include <thread>
 #include <iostream>
 #include <spdlog/spdlog.h>
 
@@ -167,7 +170,15 @@ int main(int argc, char* argv[])
             // stop_server() drops the manager's ioc, so hold our own until the signals are gone
             auto ioc = network_manager->_ioc;
             asio::signal_set signals(*ioc, SIGINT, SIGTERM);
-            signals.async_wait([raw = ioc.get()](const asio::error_code&, int) { raw->stop(); });
+            signals.async_wait([raw = ioc.get()](const asio::error_code&, int) {
+                raw->stop();
+                // a wedged audio driver shouldn't leave Ctrl+C or systemctl stop waiting for the SIGKILL
+                std::thread([] {
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                    spdlog::error("shutdown timed out, exiting");
+                    std::_Exit(EXIT_FAILURE);
+                }).detach();
+            });
 
             network_manager->wait_server();
             network_manager->stop_server();

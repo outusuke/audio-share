@@ -22,7 +22,9 @@ void audio_manager::start_loopback_recording(std::shared_ptr<network_manager> ne
 void audio_manager::stop()
 {
     _stopped = true;
-    _record_thread.join();
+    if (_record_thread.joinable()) {
+        _record_thread.join();
+    }
 }
 
 std::string audio_manager::get_format_binary()
