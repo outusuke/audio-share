@@ -1,27 +1,57 @@
 name: Test
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  upload:
-    name: Upload file
+  version-consistency:
+    name: Version files match VERSION
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: git pull
-      - uses: actions/upload-artifact@v4
-        with:
-          name: app
-          path: |
-            android-app/build.gradle.kts
+      - run: bash scripts/apply_version.sh
+      - name: Fail if a version file drifted
+        run: git diff --exit-code
 
-  download:
-    name: download file
-    runs-on: ubuntu-latest
+  server-core-tests:
+    name: server-core unit tests
+    runs-on: ubuntu-22.04
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-linux
+      VCPKG_BINARY_SOURCES: clear
     steps:
       - uses: actions/checkout@v4
-      - run: git pull
-      - uses: actions/download-artifact@v4
+      - run: sudo apt update && sudo apt install libpipewire-0.3-dev
+      - uses: lukka/get-cmake@latest
+      - uses: lukka/run-vcpkg@v11
         with:
-          path: release_bin
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+      - run: vcpkg install asio protobuf cxxopts opus spdlog
+      - name: Configure
+        working-directory: server-core
+        run: cmake --preset linux-Release -DAUDIO_SHARE_BUILD_TESTS=ON
+      - name: Build tests
+        working-directory: server-core
+        run: cmake --build --preset linux-Release --target encoder-test discovery-test
+      - name: Run tests
+        working-directory: server-core
+        run: ctest --test-dir out/build/linux-Release --output-on-failure
+
+  android-unit-tests:
+    name: Android unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+      - run: chmod +x gradlew
+      - run: ./gradlew :app:testDebugUnitTest

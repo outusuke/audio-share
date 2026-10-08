@@ -8,6 +8,7 @@
     <!-- Audio Config Defaults -->
     <string name="default_volume" translatable="false">1</string>
     <string name="default_buffer_scale" translatable="false">1</string>
+    <string name="default_latency_mode" translatable="false">1</string>
     <string name="default_loudness_enhancer" translatable="false">0</string>
 
     <!-- App Settings Defaults -->

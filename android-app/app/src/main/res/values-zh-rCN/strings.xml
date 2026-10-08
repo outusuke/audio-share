@@ -7,10 +7,19 @@
     <!-- Home Screen -->
     <string name="label_host">主机</string>
     <string name="label_port">端口</string>
+    <string name="label_find_servers">查找服务器</string>
+    <string name="label_searching">正在搜索…</string>
+    <string name="label_select_server">此网络上的服务器</string>
+    <string name="label_no_servers_found">未找到服务器。请使用 --discovery 启动服务器，并确认手机和电脑在同一 Wi-Fi 下。</string>
+    <string name="label_close">关闭</string>
     <!-- Audio Screen -->
     <string name="label_audio_track">音轨</string>
     <string name="label_volume_linear_gain">音量（线性增益）</string>
     <string name="label_buffer_scale">缓冲区倍数（MinBufferSize 的倍数）</string>
+    <string name="label_latency_mode">延迟 / 稳定性</string>
+    <string name="label_latency_low">低延迟</string>
+    <string name="label_latency_balanced">均衡</string>
+    <string name="label_latency_stable">稳定</string>
     <string name="label_audio_effect">音效</string>
     <string name="label_loudness_enhancer">响度增强器</string>
     <!-- Settings Screen -->

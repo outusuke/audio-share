@@ -19,9 +19,13 @@ package io.github.mkckr0.audio_share_app.ui.screen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -29,6 +33,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +62,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
 import io.github.mkckr0.audio_share_app.R
 import io.github.mkckr0.audio_share_app.service.AudioPlayer
+import io.github.mkckr0.audio_share_app.service.DiscoveredServer
+import io.github.mkckr0.audio_share_app.service.Discovery
 import io.github.mkckr0.audio_share_app.ui.MainActivity
 import io.github.mkckr0.audio_share_app.ui.screen.HomeScreenViewModel.UiState
 import kotlinx.coroutines.launch
@@ -70,6 +80,8 @@ fun HomeScreen(viewModel: HomeScreenViewModel = viewModel()) {
             var host by remember(uiState.host) { mutableStateOf(uiState.host) }
             var port by remember(uiState.port) { mutableStateOf(uiState.port.toString()) }
             var started by remember { mutableStateOf(false) }
+            var scanning by remember { mutableStateOf(false) }
+            var foundServers by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
             val isHostError by remember { derivedStateOf {
                 host.isEmpty()
             } }
@@ -119,6 +131,21 @@ fun HomeScreen(viewModel: HomeScreenViewModel = viewModel()) {
                     )
                 }
 
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            scanning = true
+                            foundServers = Discovery.scan(context.applicationContext)
+                            scanning = false
+                        }
+                    },
+                    enabled = !started && !scanning,
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(context.getString(if (scanning) R.string.label_searching else R.string.label_find_servers))
+                }
+
                 IconButton(
                     onClick = {
                         if (isHostError || isPortError) {
@@ -164,6 +191,39 @@ fun HomeScreen(viewModel: HomeScreenViewModel = viewModel()) {
                         }
                     }
                 }
+            }
+
+            foundServers?.let { servers ->
+                AlertDialog(
+                    onDismissRequest = { foundServers = null },
+                    title = { Text(context.getString(R.string.label_select_server)) },
+                    text = {
+                        if (servers.isEmpty()) {
+                            Text(context.getString(R.string.label_no_servers_found))
+                        } else {
+                            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                servers.forEach { server ->
+                                    Text(
+                                        text = "${server.name}\n${server.host}:${server.port}",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                host = server.host
+                                                port = server.port.toString()
+                                                foundServers = null
+                                            }
+                                            .padding(vertical = 12.dp),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { foundServers = null }) {
+                            Text(context.getString(R.string.label_close))
+                        }
+                    },
+                )
             }
 
             LifecycleStartEffect(true) {

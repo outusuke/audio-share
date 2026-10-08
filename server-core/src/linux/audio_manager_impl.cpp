@@ -345,8 +345,20 @@ void audio_manager::do_loopback_recording(std::shared_ptr<network_manager> netwo
             | PW_STREAM_FLAG_RT_PROCESS),
         params, 1);
 
+    // stop() runs on another thread and nothing else quits this loop, so the loop checks the flag itself
+    auto* pw_loop = pw_main_loop_get_loop(_loop);
+    auto* stop_timer = pw_loop_add_timer(pw_loop, [](void* data, uint64_t) {
+        auto* user_data = (struct user_data_t*)data;
+        if (user_data->manager->_stopped) {
+            pw_main_loop_quit(user_data->loop);
+        }
+    }, &user_data);
+    struct timespec first = { 0, 100 * 1000 * 1000 }, interval = { 0, 100 * 1000 * 1000 };
+    pw_loop_update_timer(pw_loop, stop_timer, &first, &interval, false);
+
     pw_main_loop_run(_loop);
 
+    pw_loop_destroy_source(pw_loop, stop_timer);
     pw_stream_destroy(user_data.stream);
 }
 

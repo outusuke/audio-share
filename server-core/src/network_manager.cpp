@@ -37,6 +37,8 @@
 #ifdef linux
 #include <sys/types.h>
 #include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #endif
 
 #include <spdlog/spdlog.h>
@@ -45,7 +47,7 @@
 namespace ip = asio::ip;
 using namespace std::chrono_literals;
 
-// remote_endpoint() throws once the peer has reset or closed, which used to abort cleanup halfway
+// remote_endpoint() throws on a reset socket
 template <typename Socket>
 static std::string remote_str(Socket& s)
 {
@@ -59,12 +61,12 @@ network_manager::network_manager(std::shared_ptr<audio_manager>& audio_manager)
 {
 }
 
-std::vector<std::string> network_manager::get_address_list()
+std::vector<std::string> network_manager::get_address_list(bool include_ipv6)
 {
     std::vector<std::string> address_list;
 
 #ifdef _WINDOWS
-    ULONG family = AF_INET;
+    ULONG family = include_ipv6 ? AF_UNSPEC : AF_INET;
     ULONG flags = GAA_FLAG_INCLUDE_ALL_INTERFACES;
 
     ULONG size = 0;
@@ -79,10 +81,17 @@ std::vector<std::string> network_manager::get_address_list()
             }
 
             for (auto pUnicast = pCurrentAddress->FirstUnicastAddress; pUnicast; pUnicast = pUnicast->Next) {
-                auto sockaddr = (sockaddr_in*)pUnicast->Address.lpSockaddr;
-                char buf[50];
-                if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
-                    address_list.emplace_back(buf);
+                const auto* sa = pUnicast->Address.lpSockaddr;
+                char buf[64];
+                if (sa->sa_family == AF_INET) {
+                    if (inet_ntop(AF_INET, &((const sockaddr_in*)sa)->sin_addr, buf, sizeof(buf))) {
+                        address_list.emplace_back(buf);
+                    }
+                } else if (sa->sa_family == AF_INET6) {
+                    const auto& a6 = ((const sockaddr_in6*)sa)->sin6_addr;
+                    if (!IN6_IS_ADDR_LINKLOCAL(&a6) && !IN6_IS_ADDR_LOOPBACK(&a6) && inet_ntop(AF_INET6, &a6, buf, sizeof(buf))) {
+                        address_list.emplace_back(buf);
+                    }
                 }
             }
         }
@@ -101,16 +110,23 @@ std::vector<std::string> network_manager::get_address_list()
         if (!ifa->ifa_addr) {
             continue;
         }
-        if (ifa->ifa_addr->sa_family != AF_INET) {
+        const auto family = ifa->ifa_addr->sa_family;
+        if (family != AF_INET && !(include_ipv6 && family == AF_INET6)) {
             continue;
         }
         if (ifa->ifa_flags & IFF_LOOPBACK) {
             continue;
         }
-        auto sockaddr = (sockaddr_in*)ifa->ifa_addr;
-        char buf[50];
-        if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
-            address_list.emplace_back(buf);
+        char buf[64];
+        if (family == AF_INET) {
+            if (inet_ntop(AF_INET, &((const sockaddr_in*)ifa->ifa_addr)->sin_addr, buf, sizeof(buf))) {
+                address_list.emplace_back(buf);
+            }
+        } else {
+            const auto& a6 = ((const sockaddr_in6*)ifa->ifa_addr)->sin6_addr;
+            if (!IN6_IS_ADDR_LINKLOCAL(&a6) && inet_ntop(AF_INET6, &a6, buf, sizeof(buf))) {
+                address_list.emplace_back(buf);
+            }
         }
     }
 
@@ -122,7 +138,11 @@ std::vector<std::string> network_manager::get_address_list()
 
 std::string network_manager::get_default_address()
 {
-    return select_default_address(get_address_list());
+    auto address_list = get_address_list();
+    if (address_list.empty()) {
+        address_list = get_address_list(true); // IPv6-only network
+    }
+    return select_default_address(address_list);
 }
 
 std::string network_manager::select_default_address(const std::vector<std::string>& address_list)
@@ -138,8 +158,10 @@ std::string network_manager::select_default_address(const std::vector<std::strin
             0xc0a80000,
         };
 
-        uint32_t addr;
-        inet_pton(AF_INET, address.c_str(), &addr);
+        uint32_t addr = 0;
+        if (inet_pton(AF_INET, address.c_str(), &addr) != 1) {
+            return false;
+        }
         addr = ntohl(addr);
         for (auto&& private_addr : private_addr_list) {
             if ((addr & private_addr) == private_addr) {
@@ -188,6 +210,9 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
 
         ip::tcp::acceptor acceptor(*_ioc, endpoint.protocol());
         acceptor.set_option(ip::tcp::acceptor::reuse_address(true));
+        if (endpoint.address().is_v6() && endpoint.address().is_unspecified()) {
+            acceptor.set_option(ip::v6_only(false)); // Windows defaults to v6 only, Linux to dual-stack
+        }
         acceptor.bind(endpoint);
         acceptor.listen();
 
@@ -201,13 +226,21 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
     {
         ip::udp::endpoint endpoint { ip::make_address(host), port };
         _udp_server = std::make_unique<udp_socket>(*_ioc, endpoint.protocol());
+        if (endpoint.address().is_v6() && endpoint.address().is_unspecified()) {
+            _udp_server->set_option(ip::v6_only(false));
+        }
         _udp_server->bind(endpoint);
 
         // DSCP EF lands in the WMM voice queue on Wi-Fi; plenty of systems ignore it
-        asio::error_code tos_ec;
-        _udp_server->set_option(asio::detail::socket_option::integer<IPPROTO_IP, IP_TOS>(0xb8), tos_ec);
+        const int tos = 0xb8;
+        ::setsockopt(_udp_server->native_handle(), IPPROTO_IP, IP_TOS, reinterpret_cast<const char*>(&tos), sizeof(tos));
+#ifdef IPV6_TCLASS
+        if (endpoint.address().is_v6()) {
+            ::setsockopt(_udp_server->native_handle(), IPPROTO_IPV6, IPV6_TCLASS, reinterpret_cast<const char*>(&tos), sizeof(tos));
+        }
+#endif
 #ifdef _WINDOWS
-        // without this, an ICMP port-unreachable from a vanished phone fails the next receive
+        // otherwise a vanished phone's ICMP port-unreachable fails the next receive
         DWORD returned = 0;
         BOOL new_behavior = FALSE;
         WSAIoctl(_udp_server->native_handle(), SIO_UDP_CONNRESET, &new_behavior, sizeof(new_behavior), nullptr, 0, &returned, nullptr, nullptr);
@@ -216,6 +249,18 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
 
         // start udp success
         spdlog::info("udp listen success on {}", endpoint);
+    }
+
+    if (_discovery_enabled) {
+        try {
+            const auto bind_address = ip::make_address(host);
+            _discovery = std::make_unique<discovery::server>(*_ioc, bind_address.is_v6(), discovery::default_port, port, ip::host_name(), bind_address);
+            asio::co_spawn(*_ioc, _discovery->run(), asio::detached);
+            spdlog::info("discovery answers on udp port {}", discovery::default_port);
+        } catch (const std::exception& e) {
+            _discovery = nullptr;
+            spdlog::warn("discovery is off: {}", e.what());
+        }
     }
 
     _capture_queue.clear();
@@ -239,7 +284,9 @@ void network_manager::stop_server()
     if (_net_thread.joinable()) {
         _net_thread.join();
     }
+    spdlog::info("stopping audio capture");
     _audio_manager->stop();
+    spdlog::info("stopping encoder");
     _encode_stop = true;
     ++_capture_signal;
     _capture_signal.notify_one();
@@ -247,6 +294,7 @@ void network_manager::stop_server()
     _playing_peer_list.clear();
     update_peer_counts();
     _udp_server = nullptr;
+    _discovery = nullptr;
     _ioc = nullptr;
     spdlog::info("server stopped");
 }
@@ -397,7 +445,7 @@ asio::awaitable<void> network_manager::accept_tcp_loop(tcp_acceptor acceptor)
             if (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor) {
                 co_return;
             }
-            // EMFILE and friends are transient, giving up here would leave the server deaf
+            // EMFILE etc. are transient; returning would leave the server deaf
             spdlog::error("{} {}", __func__, ec);
             backoff.expires_after(100ms);
             co_await backoff.async_wait();
@@ -431,7 +479,7 @@ asio::awaitable<void> network_manager::accept_udp_loop()
         ip::udp::endpoint udp_peer;
         auto [ec, _] = co_await _udp_server->async_receive_from(asio::buffer(&id, sizeof(id)), udp_peer);
         if (ec == asio::error::message_size || ec == asio::error::connection_reset) {
-            continue; // stray datagram or ICMP echo, not worth ending registration for
+            continue; // Windows surfaces ICMP port-unreachable as connection_reset
         }
         if (ec) {
             spdlog::info("{} {}", __func__, ec);
@@ -511,7 +559,7 @@ auto network_manager::remove_playing_peer(std::shared_ptr<tcp_socket>& peer) -> 
 {
     auto it = _playing_peer_list.find(peer);
     if (it == _playing_peer_list.end()) {
-        return it; // sessions can be closed from several coroutines
+        return it; // several coroutines can close the same session
     }
 
     it = _playing_peer_list.erase(it);
@@ -690,10 +738,25 @@ void network_manager::send_segments(segment_list_t pcm_segments, segment_list_t 
                 continue;
             }
             for (const auto& seg : info->opus ? opus_segments : pcm_segments) {
-                self->_udp_server->async_send_to(asio::buffer(*seg), info->udp_peer, [seg](const asio::error_code& ec, std::size_t bytes_transferred) { });
+                if (info->sends_in_flight >= max_sends_in_flight) {
+                    self->note_send_drop(*info);
+                    continue;
+                }
+                ++info->sends_in_flight;
+                self->_udp_server->async_send_to(asio::buffer(*seg), info->udp_peer, [seg, info](const asio::error_code&, std::size_t) { --info->sends_in_flight; });
             }
         }
     });
+}
+
+void network_manager::note_send_drop(peer_info_t& info)
+{
+    ++info.sends_dropped;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - info.last_drop_log >= 1s) {
+        spdlog::warn("udp send queue is full for id:{}, {} datagrams dropped so far", info.id, info.sends_dropped);
+        info.last_drop_log = now;
+    }
 }
 
 bool network_manager::should_transmit(const char* data, size_t count)

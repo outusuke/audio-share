@@ -102,10 +102,6 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
     companion object {
         var message by mutableStateOf("")
 
-        private const val MAX_QUEUED_MS = 200
-        private const val OPUS_PACKET_MS = 20
-        private const val PCM_DATAGRAM_BYTES = 1400
-
         // The server stops streaming after silence (2 s by default), so this must stay well above
         // normal packet jitter but low enough to let the audio output idle quickly.
         private const val IDLE_TIMEOUT_MS = 1500L
@@ -280,6 +276,12 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                     ?: context.getFloat(R.string.default_loudness_enhancer)).toInt()
             Log.i(tag, "loudness enhancer: ${loudnessEnhancerGain}mB")
 
+            val profile = LatencyProfile.fromIndex(
+                (audioConfig[floatPreferencesKey(AudioConfigKeys.LATENCY_MODE)]
+                    ?: context.getFloat(R.string.default_latency_mode)).toInt()
+            )
+            Log.i(tag, "latency profile: $profile")
+
             val trackBuilder = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
@@ -325,12 +327,8 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
             }
 
             val bytesPerFrame = bytesPerSample(encoding) * format.channels
-            val maxQueued = if (opusDecoder != null) {
-                MAX_QUEUED_MS / OPUS_PACKET_MS
-            } else {
-                maxOf(MAX_QUEUED_MS / OPUS_PACKET_MS, format.sampleRate * bytesPerFrame * MAX_QUEUED_MS / 1000 / PCM_DATAGRAM_BYTES)
-            }
-            _pipeline = AudioPipeline(audioTrack, opusDecoder, bytesPerFrame, maxQueued) { stats ->
+            val bytesPerSecond = format.sampleRate * bytesPerFrame
+            _pipeline = AudioPipeline(audioTrack, opusDecoder, bytesPerFrame, bytesPerSecond, profile) { stats ->
                 message = "${context.getString(R.string.label_started)} · $stats"
             }.also { it.start() }
             lastDataTime = SystemClock.elapsedRealtime()

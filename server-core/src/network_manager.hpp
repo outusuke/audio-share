@@ -34,6 +34,7 @@
 #include "opus_encoder.hpp"
 #include "spsc_queue.hpp"
 #include "silence_detector.hpp"
+#include "discovery_server.hpp"
 
 class network_manager : public std::enable_shared_from_this<network_manager>
 {
@@ -48,6 +49,9 @@ class network_manager : public std::enable_shared_from_this<network_manager>
         bool opus = false;
         asio::ip::address tcp_address;
         asio::ip::udp::endpoint udp_peer; // port 0 until the client registers
+        size_t sends_in_flight = 0;
+        size_t sends_dropped = 0;
+        std::chrono::steady_clock::time_point last_drop_log;
         std::chrono::steady_clock::time_point last_tick;
     };
 
@@ -70,13 +74,14 @@ public:
 
     explicit network_manager(std::shared_ptr<audio_manager>& audio_manager);
 
-    static std::vector<std::string> get_address_list();
+    static std::vector<std::string> get_address_list(bool include_ipv6 = false);
     static std::string get_default_address();
 private:
     static std::string select_default_address(const std::vector<std::string>& address_list);
 
 public:
     void start_server(const std::string& host, uint16_t port, const audio_manager::capture_config& capture_config);
+    void enable_discovery(bool enable) { _discovery_enabled = enable; }
     void stop_server();
     void wait_server();
     bool is_running() const;
@@ -98,6 +103,7 @@ private:
     bool ensure_codec();
     std::string get_format_binary_for(uint32_t client_caps, bool& opus);
     void send_segments(segment_list_t pcm_segments, segment_list_t opus_segments);
+    void note_send_drop(peer_info_t& info);
     void encode_loop();
     void process_audio(const uint8_t* data, size_t count, int block_align);
     bool should_transmit(const char* data, size_t count);
@@ -111,10 +117,13 @@ private:
     std::shared_ptr<audio_manager> _audio_manager;
     std::thread _net_thread;
     std::unique_ptr<udp_socket> _udp_server;
+    std::unique_ptr<discovery::server> _discovery;
+    bool _discovery_enabled = false;
     playing_peer_list_t _playing_peer_list;
     constexpr static auto _heartbeat_timeout = std::chrono::seconds(5);
     constexpr static auto _handshake_timeout = std::chrono::seconds(10);
     static constexpr int max_sessions = 16;
+    static constexpr size_t max_sends_in_flight = 256; // per client
     int _session_count = 0; // net thread only
 
     // Compression state. Requested in start_server(), resolved lazily once the

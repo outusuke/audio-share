@@ -3,7 +3,11 @@
 #include "network_manager.hpp"
 
 #include <cxxopts.hpp>
+#include <algorithm>
+#include <chrono>
 #include <csignal>
+#include <cstdlib>
+#include <thread>
 #include <iostream>
 #include <spdlog/spdlog.h>
 
@@ -32,11 +36,12 @@ int main(int argc, char* argv[])
     options.add_options()
         ("h,help", "Print usage")
         ("l,list-endpoint", "List available endpoints")
-        ("b,bind", "The server bind address. If not set, will use default", cxxopts::value<string>()->implicit_value(default_address), "[host][:<port>]")
+        ("b,bind", "The server bind address. If not set, will use default", cxxopts::value<string>()->implicit_value(default_address), "[host][:<port>] or [ipv6][:<port>]")
         ("e,endpoint", "Specify the endpoint id. If not set or set \"default\", will use default", cxxopts::value<string>()->default_value("default"), "[endpoint]")
         ("encoding", "Specify the capture encoding. If not set or set \"default\", will use default", cxxopts::value<audio_manager::encoding_t>()->default_value("default"), "[encoding]")
         ("list-encoding", "List available encoding")
         ("compression", "Compress the audio stream: \"none\" or \"opus\". Opus is the default when this build supports it. Clients without Opus support still get raw PCM. More than two channels are downmixed to stereo. The Opus stream is always 48000 Hz, other capture rates are resampled", cxxopts::value<audio_manager::compression_t>()->default_value(default_compression), "[none|opus]")
+        ("discovery", "Answer the app's search for servers (UDP port 65531, private networks only), so the phone can find this server without typing the address")
         ("silence-timeout", "Stop sending audio after this many seconds of silence and resume when sound plays again (saves the phone's battery). 0 disables", cxxopts::value<double>()->default_value("2"), "[seconds]")
         ("bitrate", "Opus bitrate in kbit/s, only used with --compression=opus", cxxopts::value<int>()->default_value("128"), "[kbps]")
         ("channels", "Specify the capture channels. If not set or set \"0\", will use default", cxxopts::value<int>()->default_value("0"), "[channels]")
@@ -93,14 +98,38 @@ int main(int argc, char* argv[])
 
         if (result.count("bind")) {
             auto s = result["bind"].as<string>();
-            size_t pos = s.find(':');
-            string host = s.substr(0, pos);
-            uint16_t port;
-            if (pos == string::npos) {
-                port = 65530;
+            string host;
+            string port_str;
+            if (!s.empty() && s.front() == '[') { // [::1]:65530
+                const size_t close = s.find(']');
+                if (close == string::npos || (close + 1 < s.size() && s[close + 1] != ':')) {
+                    std::cerr << "bad --bind value, expected [address]:port\n";
+                    return EXIT_FAILURE;
+                }
+                host = s.substr(1, close - 1);
+                if (close + 2 <= s.size()) {
+                    port_str = s.substr(close + 2);
+                }
+            } else if (std::count(s.begin(), s.end(), ':') > 1) { // bare IPv6, default port
+                host = s;
             } else {
-                const int parsed = std::stoi(s.substr(pos + 1));
-                if (parsed < 1 || parsed > 65535) {
+                const size_t pos = s.find(':');
+                host = s.substr(0, pos);
+                if (pos != string::npos) {
+                    port_str = s.substr(pos + 1);
+                }
+            }
+
+            uint16_t port = 65530;
+            if (!port_str.empty()) {
+                int parsed = 0;
+                size_t used = 0;
+                try {
+                    parsed = std::stoi(port_str, &used);
+                } catch (const std::exception&) {
+                    used = 0;
+                }
+                if (used != port_str.size() || parsed < 1 || parsed > 65535) {
                     std::cerr << "port must be between 1 and 65535\n";
                     return EXIT_FAILURE;
                 }
@@ -135,12 +164,21 @@ int main(int argc, char* argv[])
 
             auto network_manager = std::make_shared<class network_manager>(audio_manager);
 
+            network_manager->enable_discovery(result.count("discovery") > 0);
             network_manager->start_server(host, port, capture_config);
 
-            // keep our own reference: stop_server() drops the manager's, and signals must die before the io_context
+            // stop_server() drops the manager's ioc, so hold our own until the signals are gone
             auto ioc = network_manager->_ioc;
             asio::signal_set signals(*ioc, SIGINT, SIGTERM);
-            signals.async_wait([raw = ioc.get()](const asio::error_code&, int) { raw->stop(); });
+            signals.async_wait([raw = ioc.get()](const asio::error_code&, int) {
+                raw->stop();
+                // a wedged audio driver shouldn't leave Ctrl+C or systemctl stop waiting for the SIGKILL
+                std::thread([] {
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                    spdlog::error("shutdown timed out, exiting");
+                    std::_Exit(EXIT_FAILURE);
+                }).detach();
+            });
 
             network_manager->wait_server();
             network_manager->stop_server();

@@ -121,6 +121,7 @@ public:
 
     static constexpr int frame_ms = 20;
     static constexpr int max_packet_size = 1275; // maximum size of one Opus packet
+    static constexpr int expected_loss_percent = 5; // rough guess for home Wi-Fi
 
     static constexpr int output_rate = 48000;
 
@@ -163,6 +164,8 @@ public:
         opus_encoder_ctl(e->_enc, OPUS_SET_COMPLEXITY(10));
         opus_encoder_ctl(e->_enc, OPUS_SET_VBR(1));
         opus_encoder_ctl(e->_enc, OPUS_SET_VBR_CONSTRAINT(1)); // keeps packet sizes predictable on Wi-Fi
+        opus_encoder_ctl(e->_enc, OPUS_SET_INBAND_FEC(1));
+        opus_encoder_ctl(e->_enc, OPUS_SET_PACKET_LOSS_PERC(expected_loss_percent));
         if (bitrate > 0) {
             opus_encoder_ctl(e->_enc, OPUS_SET_BITRATE(bitrate));
         }
@@ -241,6 +244,7 @@ private:
     }
 
     // rows are L and R, columns follow WAVEFORMATEX order; each row sums to 1 so full scale can't clip
+    // LFE (index 3 in 5.1 and 7.1) is skipped, same as the ITU stereo downmix
     static std::vector<float> make_downmix(int channels)
     {
         constexpr float k = 0.7071f;

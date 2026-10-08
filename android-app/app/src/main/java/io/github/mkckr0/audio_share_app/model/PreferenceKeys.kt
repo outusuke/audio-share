@@ -24,6 +24,7 @@ object NetworkConfigKeys {
 object AudioConfigKeys {
     const val VOLUME = "volume"
     const val BUFFER_SCALE = "buffer_scale"
+    const val LATENCY_MODE = "latency_mode"
     const val LOUDNESS_ENHANCER = "loudness_enhancer"
 }
 

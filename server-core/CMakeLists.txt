@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20.0)
 
 project(audio-share
 	VERSION 0.4.0
-	HOMEPAGE_URL "https://github.com/mkckr0/audio-share"
+	HOMEPAGE_URL "https://github.com/outusuke/audio-share-plus"
 )
 
 set(CMAKE_CXX_STANDARD 20)
@@ -73,6 +73,17 @@ if(AUDIO_SHARE_BUILD_TESTS AND AUDIO_SHARE_WITH_OPUS)
 	target_compile_definitions(encoder-test PRIVATE AUDIO_SHARE_WITH_OPUS)
 	target_link_libraries(encoder-test PRIVATE Opus::opus protobuf::libprotobuf)
 	add_test(NAME encoder-test COMMAND encoder-test)
+endif()
+
+if(AUDIO_SHARE_BUILD_TESTS)
+	enable_testing()
+	find_package(Threads REQUIRED)
+	add_executable(discovery-test tests/discovery_test.cpp)
+	target_link_libraries(discovery-test PRIVATE asio::asio Threads::Threads)
+	if(WIN32)
+		target_link_libraries(discovery-test PRIVATE ws2_32 mswsock)
+	endif()
+	add_test(NAME discovery-test COMMAND discovery-test)
 endif()
 
 install(TARGETS server-cmd)

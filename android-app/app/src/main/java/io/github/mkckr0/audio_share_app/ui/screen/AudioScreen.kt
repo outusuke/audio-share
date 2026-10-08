@@ -35,6 +35,11 @@ import io.github.mkckr0.audio_share_app.ui.theme.AppTheme
 @Composable
 fun AudioScreen() {
     val context = LocalContext.current
+    val latencyLabels = listOf(
+        context.getString(R.string.label_latency_low),
+        context.getString(R.string.label_latency_balanced),
+        context.getString(R.string.label_latency_stable),
+    )
     Column(
         modifier = Modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -54,6 +59,14 @@ fun AudioScreen() {
                 valueFormatter = { "%1.0fx".format(it) },
                 defaultValue = context.getFloat(R.string.default_buffer_scale),
                 valueRange = 1f..10f,
+                step = 1f
+            )
+            SliderConfig(
+                key = AudioConfigKeys.LATENCY_MODE,
+                title = context.getString(R.string.label_latency_mode),
+                valueFormatter = { latencyLabels[it.toInt().coerceIn(0, 2)] },
+                defaultValue = context.getFloat(R.string.default_latency_mode),
+                valueRange = 0f..2f,
                 step = 1f
             )
         }
