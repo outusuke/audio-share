@@ -34,6 +34,7 @@ import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlinx.io.readIntLe
 import kotlinx.io.writeIntLe
+import java.io.IOException
 import java.nio.ByteBuffer
 
 suspend fun ByteWriteChannel.writeCMD(cmd: CMD) {
@@ -59,7 +60,8 @@ suspend fun ByteReadChannel.readIntLE(): Int {
 }
 
 suspend fun ByteReadChannel.readCMD(): CMD {
-    return CMD.entries[readIntLE()]
+    val value = readIntLE()
+    return CMD.entries.getOrNull(value) ?: throw IOException("unknown command $value from server")
 }
 
 suspend fun ByteReadChannel.readAudioFormat(): AudioFormat? {

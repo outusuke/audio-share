@@ -3,6 +3,7 @@
 #include "network_manager.hpp"
 
 #include <cxxopts.hpp>
+#include <csignal>
 #include <iostream>
 #include <spdlog/spdlog.h>
 
@@ -98,7 +99,12 @@ int main(int argc, char* argv[])
             if (pos == string::npos) {
                 port = 65530;
             } else {
-                port = (uint16_t)std::stoi(s.substr(pos + 1));
+                const int parsed = std::stoi(s.substr(pos + 1));
+                if (parsed < 1 || parsed > 65535) {
+                    std::cerr << "port must be between 1 and 65535\n";
+                    return EXIT_FAILURE;
+                }
+                port = (uint16_t)parsed;
             }
 
             auto audio_manager = std::make_shared<class audio_manager>();
@@ -130,7 +136,14 @@ int main(int argc, char* argv[])
             auto network_manager = std::make_shared<class network_manager>(audio_manager);
 
             network_manager->start_server(host, port, capture_config);
+
+            // keep our own reference: stop_server() drops the manager's, and signals must die before the io_context
+            auto ioc = network_manager->_ioc;
+            asio::signal_set signals(*ioc, SIGINT, SIGTERM);
+            signals.async_wait([raw = ioc.get()](const asio::error_code&, int) { raw->stop(); });
+
             network_manager->wait_server();
+            network_manager->stop_server();
 
             return EXIT_SUCCESS;
         }

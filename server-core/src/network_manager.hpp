@@ -86,6 +86,7 @@ private:
     asio::awaitable<void> read_loop(std::shared_ptr<tcp_socket> peer);
     asio::awaitable<void> heartbeat_loop(std::shared_ptr<tcp_socket> peer);
     asio::awaitable<void> accept_udp_loop();
+    asio::awaitable<void> handshake_watchdog(std::shared_ptr<tcp_socket> peer);
     
     playing_peer_list_t::iterator close_session(std::shared_ptr<tcp_socket>& peer);
     int add_playing_peer(std::shared_ptr<tcp_socket>& peer, bool opus);
@@ -112,6 +113,9 @@ private:
     std::unique_ptr<udp_socket> _udp_server;
     playing_peer_list_t _playing_peer_list;
     constexpr static auto _heartbeat_timeout = std::chrono::seconds(5);
+    constexpr static auto _handshake_timeout = std::chrono::seconds(10);
+    static constexpr int max_sessions = 16;
+    int _session_count = 0; // net thread only
 
     // Compression state. Requested in start_server(), resolved lazily once the
     // capture format is known (see ensure_codec()).
