@@ -29,6 +29,9 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Iphlpapi.lib")
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
 #endif // _WINDOWS
 
 #ifdef linux
@@ -41,6 +44,15 @@
 
 namespace ip = asio::ip;
 using namespace std::chrono_literals;
+
+// remote_endpoint() throws once the peer has reset or closed, which used to abort cleanup halfway
+template <typename Socket>
+static std::string remote_str(Socket& s)
+{
+    asio::error_code ec;
+    auto ep = s.remote_endpoint(ec);
+    return ec ? "<disconnected>" : fmt::format("{}", ep);
+}
 
 network_manager::network_manager(std::shared_ptr<audio_manager>& audio_manager)
     : _audio_manager(audio_manager)
@@ -163,6 +175,7 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
     }
     _opus_peer_count = 0;
     _pcm_peer_count = 0;
+    _session_count = 0;
 #ifndef AUDIO_SHARE_WITH_OPUS
     if (capture_config.compression == audio_manager::compression_t::compression_opus) {
         spdlog::warn("this build has no Opus support, audio will be sent uncompressed");
@@ -193,6 +206,12 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
         // DSCP EF lands in the WMM voice queue on Wi-Fi; plenty of systems ignore it
         asio::error_code tos_ec;
         _udp_server->set_option(asio::detail::socket_option::integer<IPPROTO_IP, IP_TOS>(0xb8), tos_ec);
+#ifdef _WINDOWS
+        // without this, an ICMP port-unreachable from a vanished phone fails the next receive
+        DWORD returned = 0;
+        BOOL new_behavior = FALSE;
+        WSAIoctl(_udp_server->native_handle(), SIO_UDP_CONNRESET, &new_behavior, sizeof(new_behavior), nullptr, 0, &returned, nullptr, nullptr);
+#endif
         asio::co_spawn(*_ioc, accept_udp_loop(), asio::detached);
 
         // start udp success
@@ -217,7 +236,9 @@ void network_manager::stop_server()
     if (_ioc) {
         _ioc->stop();
     }
-    _net_thread.join();
+    if (_net_thread.joinable()) {
+        _net_thread.join();
+    }
     _audio_manager->stop();
     _encode_stop = true;
     ++_capture_signal;
@@ -310,6 +331,7 @@ asio::awaitable<void> network_manager::read_loop(std::shared_ptr<tcp_socket> pee
             break;
         }
     }
+    --_session_count;
     spdlog::trace("stop {}", __func__);
 }
 
@@ -337,7 +359,7 @@ asio::awaitable<void> network_manager::heartbeat_loop(std::shared_ptr<tcp_socket
             break;
         }
         if (std::chrono::steady_clock::now() - it->second->last_tick > _heartbeat_timeout) {
-            spdlog::info("{} timeout", it->first->remote_endpoint());
+            spdlog::info("{} timeout", remote_str(*it->first));
             close_session(peer);
             break;
         }
@@ -353,25 +375,52 @@ asio::awaitable<void> network_manager::heartbeat_loop(std::shared_ptr<tcp_socket
     spdlog::trace("stop {}", __func__);
 }
 
+asio::awaitable<void> network_manager::handshake_watchdog(std::shared_ptr<tcp_socket> peer)
+{
+    steady_timer timer(*_ioc);
+    timer.expires_after(_handshake_timeout);
+    co_await timer.async_wait();
+
+    if (peer->is_open() && !_playing_peer_list.contains(peer)) {
+        spdlog::info("{} never started playback, closing", remote_str(*peer));
+        close_session(peer);
+    }
+}
+
 asio::awaitable<void> network_manager::accept_tcp_loop(tcp_acceptor acceptor)
 {
+    steady_timer backoff(*_ioc);
     while (true) {
         auto peer = std::make_shared<tcp_socket>(acceptor.get_executor());
         auto [ec] = co_await acceptor.async_accept(*peer);
         if (ec) {
+            if (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor) {
+                co_return;
+            }
+            // EMFILE and friends are transient, giving up here would leave the server deaf
             spdlog::error("{} {}", __func__, ec);
-            co_return;
+            backoff.expires_after(100ms);
+            co_await backoff.async_wait();
+            continue;
         }
 
-        spdlog::info("accept {}", peer->remote_endpoint());
+        if (_session_count >= max_sessions) {
+            spdlog::warn("too many connections, rejecting {}", remote_str(*peer));
+            asio::error_code ignored;
+            peer->close(ignored);
+            continue;
+        }
+        ++_session_count;
 
-        // No-Delay
+        spdlog::info("accept {}", remote_str(*peer));
+
         peer->set_option(ip::tcp::no_delay(true), ec);
         if (ec) {
             spdlog::info("{} {}", __func__, ec);
         }
 
         asio::co_spawn(acceptor.get_executor(), read_loop(peer), asio::detached);
+        asio::co_spawn(acceptor.get_executor(), handshake_watchdog(peer), asio::detached);
     }
 }
 
@@ -381,6 +430,9 @@ asio::awaitable<void> network_manager::accept_udp_loop()
         int id = 0;
         ip::udp::endpoint udp_peer;
         auto [ec, _] = co_await _udp_server->async_receive_from(asio::buffer(&id, sizeof(id)), udp_peer);
+        if (ec == asio::error::message_size || ec == asio::error::connection_reset) {
+            continue; // stray datagram or ICMP echo, not worth ending registration for
+        }
         if (ec) {
             spdlog::info("{} {}", __func__, ec);
             co_return;
@@ -392,10 +444,15 @@ asio::awaitable<void> network_manager::accept_udp_loop()
 
 auto network_manager::close_session(std::shared_ptr<tcp_socket>& peer) -> playing_peer_list_t::iterator
 {
-    spdlog::info("close {}", peer->remote_endpoint());
     auto it = remove_playing_peer(peer);
-    peer->shutdown(ip::tcp::socket::shutdown_both);
-    peer->close();
+    if (!peer->is_open()) {
+        return it;
+    }
+
+    spdlog::info("close {}", remote_str(*peer));
+    asio::error_code ec;
+    peer->shutdown(ip::tcp::socket::shutdown_both, ec);
+    peer->close(ec);
     return it;
 }
 
@@ -411,7 +468,7 @@ static asio::ip::address normalize_address(const asio::ip::address& a)
 int network_manager::add_playing_peer(std::shared_ptr<tcp_socket>& peer, bool opus)
 {
     if (_playing_peer_list.contains(peer)) {
-        spdlog::error("{} repeat add tcp://{}", __func__, peer->remote_endpoint());
+        spdlog::error("{} repeat add tcp://{}", __func__, remote_str(*peer));
         return 0;
     }
 
@@ -454,13 +511,12 @@ auto network_manager::remove_playing_peer(std::shared_ptr<tcp_socket>& peer) -> 
 {
     auto it = _playing_peer_list.find(peer);
     if (it == _playing_peer_list.end()) {
-        spdlog::error("{} repeat remove tcp://{}", __func__, peer->remote_endpoint());
-        return it;
+        return it; // sessions can be closed from several coroutines
     }
 
     it = _playing_peer_list.erase(it);
     update_peer_counts();
-    spdlog::trace("{} remove tcp://{}", __func__, peer->remote_endpoint());
+    spdlog::trace("{} remove tcp://{}", __func__, remote_str(*peer));
     return it;
 }
 
@@ -482,7 +538,7 @@ void network_manager::fill_udp_peer(int id, asio::ip::udp::endpoint udp_peer)
     }
 
     it->second->udp_peer = udp_peer;
-    spdlog::info("{} fill udp peer id:{} tcp://{} udp://{}", __func__, id, it->first->remote_endpoint(), udp_peer);
+    spdlog::info("{} fill udp peer id:{} tcp://{} udp://{}", __func__, id, remote_str(*it->first), udp_peer);
 }
 
 bool network_manager::ensure_codec()
