@@ -68,12 +68,23 @@ class UpdateWorker(appContext: Context, workerParams: WorkerParameters) : Worker
                     })
                 }
             }
-            val res =
-                httpClient.get("https://api.github.com/repos/outusuke/audio-share/releases/latest")
-            val latestRelease: LatestRelease = res.body()
+            val latestRelease: LatestRelease = try {
+                httpClient.get("https://api.github.com/repos/outusuke/audio-share/releases/latest").body()
+            } catch (e: Exception) {
+                // No release yet (404), offline, or rate limited.
+                Log.w(tag, "update check failed", e)
+                withContext(Dispatchers.Main) { showMessage("Couldn't check for updates") }
+                return@launch
+            }
 
             withContext(Dispatchers.Main) {
-                if (!Util.isNewerVersion(latestRelease.tagName, "v${BuildConfig.VERSION_NAME}")) {
+                val isNewer = try {
+                    Util.isNewerVersion(latestRelease.tagName, "v${BuildConfig.VERSION_NAME}")
+                } catch (e: IllegalArgumentException) {
+                    Log.w(tag, "unexpected release tag: ${latestRelease.tagName}", e)
+                    false
+                }
+                if (!isNewer) {
                     showMessage(applicationContext.getString(R.string.label_no_update))
                     return@withContext
                 }
