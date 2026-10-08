@@ -73,7 +73,7 @@ public:
 
     explicit network_manager(std::shared_ptr<audio_manager>& audio_manager);
 
-    static std::vector<std::string> get_address_list();
+    static std::vector<std::string> get_address_list(bool include_ipv6 = false);
     static std::string get_default_address();
 private:
     static std::string select_default_address(const std::vector<std::string>& address_list);

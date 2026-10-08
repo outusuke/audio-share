@@ -37,6 +37,8 @@
 #ifdef linux
 #include <sys/types.h>
 #include <ifaddrs.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #endif
 
 #include <spdlog/spdlog.h>
@@ -59,12 +61,12 @@ network_manager::network_manager(std::shared_ptr<audio_manager>& audio_manager)
 {
 }
 
-std::vector<std::string> network_manager::get_address_list()
+std::vector<std::string> network_manager::get_address_list(bool include_ipv6)
 {
     std::vector<std::string> address_list;
 
 #ifdef _WINDOWS
-    ULONG family = AF_INET;
+    ULONG family = include_ipv6 ? AF_UNSPEC : AF_INET;
     ULONG flags = GAA_FLAG_INCLUDE_ALL_INTERFACES;
 
     ULONG size = 0;
@@ -79,10 +81,17 @@ std::vector<std::string> network_manager::get_address_list()
             }
 
             for (auto pUnicast = pCurrentAddress->FirstUnicastAddress; pUnicast; pUnicast = pUnicast->Next) {
-                auto sockaddr = (sockaddr_in*)pUnicast->Address.lpSockaddr;
-                char buf[50];
-                if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
-                    address_list.emplace_back(buf);
+                const auto* sa = pUnicast->Address.lpSockaddr;
+                char buf[64];
+                if (sa->sa_family == AF_INET) {
+                    if (inet_ntop(AF_INET, &((const sockaddr_in*)sa)->sin_addr, buf, sizeof(buf))) {
+                        address_list.emplace_back(buf);
+                    }
+                } else if (sa->sa_family == AF_INET6) {
+                    const auto& a6 = ((const sockaddr_in6*)sa)->sin6_addr;
+                    if (!IN6_IS_ADDR_LINKLOCAL(&a6) && !IN6_IS_ADDR_LOOPBACK(&a6) && inet_ntop(AF_INET6, &a6, buf, sizeof(buf))) {
+                        address_list.emplace_back(buf);
+                    }
                 }
             }
         }
@@ -101,16 +110,23 @@ std::vector<std::string> network_manager::get_address_list()
         if (!ifa->ifa_addr) {
             continue;
         }
-        if (ifa->ifa_addr->sa_family != AF_INET) {
+        const auto family = ifa->ifa_addr->sa_family;
+        if (family != AF_INET && !(include_ipv6 && family == AF_INET6)) {
             continue;
         }
         if (ifa->ifa_flags & IFF_LOOPBACK) {
             continue;
         }
-        auto sockaddr = (sockaddr_in*)ifa->ifa_addr;
-        char buf[50];
-        if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
-            address_list.emplace_back(buf);
+        char buf[64];
+        if (family == AF_INET) {
+            if (inet_ntop(AF_INET, &((const sockaddr_in*)ifa->ifa_addr)->sin_addr, buf, sizeof(buf))) {
+                address_list.emplace_back(buf);
+            }
+        } else {
+            const auto& a6 = ((const sockaddr_in6*)ifa->ifa_addr)->sin6_addr;
+            if (!IN6_IS_ADDR_LINKLOCAL(&a6) && inet_ntop(AF_INET6, &a6, buf, sizeof(buf))) {
+                address_list.emplace_back(buf);
+            }
         }
     }
 
@@ -122,7 +138,11 @@ std::vector<std::string> network_manager::get_address_list()
 
 std::string network_manager::get_default_address()
 {
-    return select_default_address(get_address_list());
+    auto address_list = get_address_list();
+    if (address_list.empty()) {
+        address_list = get_address_list(true); // IPv6-only network
+    }
+    return select_default_address(address_list);
 }
 
 std::string network_manager::select_default_address(const std::vector<std::string>& address_list)
@@ -138,8 +158,10 @@ std::string network_manager::select_default_address(const std::vector<std::strin
             0xc0a80000,
         };
 
-        uint32_t addr;
-        inet_pton(AF_INET, address.c_str(), &addr);
+        uint32_t addr = 0;
+        if (inet_pton(AF_INET, address.c_str(), &addr) != 1) {
+            return false;
+        }
         addr = ntohl(addr);
         for (auto&& private_addr : private_addr_list) {
             if ((addr & private_addr) == private_addr) {
@@ -188,6 +210,9 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
 
         ip::tcp::acceptor acceptor(*_ioc, endpoint.protocol());
         acceptor.set_option(ip::tcp::acceptor::reuse_address(true));
+        if (endpoint.address().is_v6() && endpoint.address().is_unspecified()) {
+            acceptor.set_option(ip::v6_only(false)); // Windows defaults to v6 only, Linux to dual-stack
+        }
         acceptor.bind(endpoint);
         acceptor.listen();
 
@@ -201,11 +226,19 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
     {
         ip::udp::endpoint endpoint { ip::make_address(host), port };
         _udp_server = std::make_unique<udp_socket>(*_ioc, endpoint.protocol());
+        if (endpoint.address().is_v6() && endpoint.address().is_unspecified()) {
+            _udp_server->set_option(ip::v6_only(false));
+        }
         _udp_server->bind(endpoint);
 
         // DSCP EF lands in the WMM voice queue on Wi-Fi; plenty of systems ignore it
         const int tos = 0xb8;
         ::setsockopt(_udp_server->native_handle(), IPPROTO_IP, IP_TOS, reinterpret_cast<const char*>(&tos), sizeof(tos));
+#ifdef IPV6_TCLASS
+        if (endpoint.address().is_v6()) {
+            ::setsockopt(_udp_server->native_handle(), IPPROTO_IPV6, IPV6_TCLASS, reinterpret_cast<const char*>(&tos), sizeof(tos));
+        }
+#endif
 #ifdef _WINDOWS
         // otherwise a vanished phone's ICMP port-unreachable fails the next receive
         DWORD returned = 0;
