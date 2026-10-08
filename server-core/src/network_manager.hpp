@@ -34,6 +34,7 @@
 #include "opus_encoder.hpp"
 #include "spsc_queue.hpp"
 #include "silence_detector.hpp"
+#include "discovery_server.hpp"
 
 class network_manager : public std::enable_shared_from_this<network_manager>
 {
@@ -80,6 +81,7 @@ private:
 
 public:
     void start_server(const std::string& host, uint16_t port, const audio_manager::capture_config& capture_config);
+    void enable_discovery(bool enable) { _discovery_enabled = enable; }
     void stop_server();
     void wait_server();
     bool is_running() const;
@@ -115,6 +117,8 @@ private:
     std::shared_ptr<audio_manager> _audio_manager;
     std::thread _net_thread;
     std::unique_ptr<udp_socket> _udp_server;
+    std::unique_ptr<discovery::server> _discovery;
+    bool _discovery_enabled = false;
     playing_peer_list_t _playing_peer_list;
     constexpr static auto _heartbeat_timeout = std::chrono::seconds(5);
     constexpr static auto _handshake_timeout = std::chrono::seconds(10);

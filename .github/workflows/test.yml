@@ -35,7 +35,7 @@ jobs:
         run: cmake --preset linux-Release -DAUDIO_SHARE_BUILD_TESTS=ON
       - name: Build tests
         working-directory: server-core
-        run: cmake --build --preset linux-Release --target encoder-test
+        run: cmake --build --preset linux-Release --target encoder-test discovery-test
       - name: Run tests
         working-directory: server-core
         run: ctest --test-dir out/build/linux-Release --output-on-failure

@@ -7,6 +7,11 @@
     <!-- Home Screen -->
     <string name="label_host">Host</string>
     <string name="label_port">Port</string>
+    <string name="label_find_servers">Find servers</string>
+    <string name="label_searching">Searching…</string>
+    <string name="label_select_server">Servers on this network</string>
+    <string name="label_no_servers_found">No servers found. Start the server with --discovery and make sure the phone and PC are on the same Wi-Fi.</string>
+    <string name="label_close">Close</string>
     <!-- Audio Screen -->
     <string name="label_audio_track">Audio Track</string>
     <string name="label_volume_linear_gain">Volume(Linear Gain)</string>

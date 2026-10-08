@@ -72,6 +72,10 @@ Audio Share can share Windows/Linux computer's audio to Android phone over netwo
 - Install APK to your phone and open it. Modify the "Host" part to make sure it's same as the value of previous step, such as `192.168.xxx.xxx`. Click "▶" button and enjoy the audio🎶.
 
 
+## Finding the server from the app
+Run the server with `--discovery` (for example `as-cmd -b --discovery`) and tap **Find servers** in the app. The app lists the servers on your Wi-Fi, and tapping one fills in the host and port. The server answers on UDP port 65531, but only to devices on private networks. It needs a network that allows broadcast, so guest Wi-Fi and routers with client isolation usually block it. Allow UDP port 65531 in your firewall if nothing shows up. Discovery is IPv4 only and off by default.
+
+
 ## IPv6
 Pass an IPv6 address to `--bind`, in brackets if you add a port: `as-cmd -b --bind=[2001:db8::1]:65530`. `--bind=::` listens on IPv6 and IPv4 at once. Without `--bind`, the server picks a private IPv4 address, and only falls back to a global IPv6 address when the computer has no IPv4 one. Link-local `fe80::` addresses need a zone such as `%wlan0` and haven't been tested, so use a global or unique-local address. The Windows GUI server only lists IPv4 addresses.
 

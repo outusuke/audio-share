@@ -26,6 +26,26 @@ sequenceDiagram
     end
 ```
 
+## Discovery (optional)
+
+A server started with `--discovery` also listens on UDP port 65531 on every interface, so the app can find it without the address being typed in. This is separate from the audio connection and is off by default.
+
+Request: a UDP datagram of at least 64 bytes sent to the broadcast address (`255.255.255.255` and the subnet broadcast address). The first four bytes are `ASDQ`, the rest is padding.
+
+Reply: a unicast datagram back to the sender.
+
+| Offset | Size | Meaning |
+|---|---|---|
+| 0 | 4 | `ASDR` |
+| 4 | 1 | reply version, currently 1 |
+| 5 | 2 | TCP port of the audio server, little-endian |
+| 7 | 1 | name length in bytes, at most 48 |
+| 8 | n | server name (the PC's host name, UTF-8) |
+
+The client connects to the address the reply came from. Later versions may append fields, so ignore bytes past the name.
+
+The server only answers sources on private or link-local networks. Replies are never longer than the 64-byte request, and at most about 100 are sent per second. If the server is bound to one address, it only answers requests that would leave from that address. Discovery is IPv4 broadcast only for now.
+
 ## Byte order
 
 Every multi-byte integer on the wire (command ids, the length prefix before `AudioFormat`, capability bits, the UDP `id` and the Opus sequence number) is little-endian. The server writes them in native order, which is little-endian on every platform it builds for.

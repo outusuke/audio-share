@@ -38,6 +38,7 @@ int main(int argc, char* argv[])
         ("encoding", "Specify the capture encoding. If not set or set \"default\", will use default", cxxopts::value<audio_manager::encoding_t>()->default_value("default"), "[encoding]")
         ("list-encoding", "List available encoding")
         ("compression", "Compress the audio stream: \"none\" or \"opus\". Opus is the default when this build supports it. Clients without Opus support still get raw PCM. More than two channels are downmixed to stereo. The Opus stream is always 48000 Hz, other capture rates are resampled", cxxopts::value<audio_manager::compression_t>()->default_value(default_compression), "[none|opus]")
+        ("discovery", "Answer the app's search for servers (UDP port 65531, private networks only), so the phone can find this server without typing the address")
         ("silence-timeout", "Stop sending audio after this many seconds of silence and resume when sound plays again (saves the phone's battery). 0 disables", cxxopts::value<double>()->default_value("2"), "[seconds]")
         ("bitrate", "Opus bitrate in kbit/s, only used with --compression=opus", cxxopts::value<int>()->default_value("128"), "[kbps]")
         ("channels", "Specify the capture channels. If not set or set \"0\", will use default", cxxopts::value<int>()->default_value("0"), "[channels]")
@@ -160,6 +161,7 @@ int main(int argc, char* argv[])
 
             auto network_manager = std::make_shared<class network_manager>(audio_manager);
 
+            network_manager->enable_discovery(result.count("discovery") > 0);
             network_manager->start_server(host, port, capture_config);
 
             // stop_server() drops the manager's ioc, so hold our own until the signals are gone

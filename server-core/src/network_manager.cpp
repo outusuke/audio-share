@@ -251,6 +251,18 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
         spdlog::info("udp listen success on {}", endpoint);
     }
 
+    if (_discovery_enabled) {
+        try {
+            const auto bind_address = ip::make_address(host);
+            _discovery = std::make_unique<discovery::server>(*_ioc, bind_address.is_v6(), discovery::default_port, port, ip::host_name(), bind_address);
+            asio::co_spawn(*_ioc, _discovery->run(), asio::detached);
+            spdlog::info("discovery answers on udp port {}", discovery::default_port);
+        } catch (const std::exception& e) {
+            _discovery = nullptr;
+            spdlog::warn("discovery is off: {}", e.what());
+        }
+    }
+
     _capture_queue.clear();
     _encode_stop = false;
     _encode_thread = std::thread([self = shared_from_this()] {
@@ -280,6 +292,7 @@ void network_manager::stop_server()
     _playing_peer_list.clear();
     update_peer_counts();
     _udp_server = nullptr;
+    _discovery = nullptr;
     _ioc = nullptr;
     spdlog::info("server stopped");
 }
