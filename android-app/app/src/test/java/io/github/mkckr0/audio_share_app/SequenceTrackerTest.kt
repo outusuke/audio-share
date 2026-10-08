@@ -52,4 +52,15 @@ class SequenceTrackerTest {
         assertTrue(t.accept(40000))
         assertEquals(0, t.lost)
     }
+
+    @Test
+    fun resync_dropsAreNotCountedAsLoss() {
+        val t = SequenceTracker()
+        assertTrue(t.accept(10))
+        t.resync()
+        assertTrue(t.accept(30))
+        assertEquals(0, t.lost)
+        assertTrue(t.accept(32))
+        assertEquals(1, t.lost)
+    }
 }

@@ -9,6 +9,11 @@ class SequenceTracker {
 
     private var last = -1
 
+    // call after dropping packets on purpose so the gap isn't counted (or concealed) as network loss
+    fun resync() {
+        last = -1
+    }
+
     // false for duplicates and anything older than the newest packet seen
     fun accept(seq: Int): Boolean {
         if (last < 0) {

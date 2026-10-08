@@ -48,6 +48,9 @@ class network_manager : public std::enable_shared_from_this<network_manager>
         bool opus = false;
         asio::ip::address tcp_address;
         asio::ip::udp::endpoint udp_peer; // port 0 until the client registers
+        size_t sends_in_flight = 0;
+        size_t sends_dropped = 0;
+        std::chrono::steady_clock::time_point last_drop_log;
         std::chrono::steady_clock::time_point last_tick;
     };
 
@@ -98,6 +101,7 @@ private:
     bool ensure_codec();
     std::string get_format_binary_for(uint32_t client_caps, bool& opus);
     void send_segments(segment_list_t pcm_segments, segment_list_t opus_segments);
+    void note_send_drop(peer_info_t& info);
     void encode_loop();
     void process_audio(const uint8_t* data, size_t count, int block_align);
     bool should_transmit(const char* data, size_t count);
@@ -115,6 +119,7 @@ private:
     constexpr static auto _heartbeat_timeout = std::chrono::seconds(5);
     constexpr static auto _handshake_timeout = std::chrono::seconds(10);
     static constexpr int max_sessions = 16;
+    static constexpr size_t max_sends_in_flight = 256; // per client
     int _session_count = 0; // net thread only
 
     // Compression state. Requested in start_server(), resolved lazily once the

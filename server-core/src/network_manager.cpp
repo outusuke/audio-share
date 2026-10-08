@@ -690,10 +690,25 @@ void network_manager::send_segments(segment_list_t pcm_segments, segment_list_t 
                 continue;
             }
             for (const auto& seg : info->opus ? opus_segments : pcm_segments) {
-                self->_udp_server->async_send_to(asio::buffer(*seg), info->udp_peer, [seg](const asio::error_code& ec, std::size_t bytes_transferred) { });
+                if (info->sends_in_flight >= max_sends_in_flight) {
+                    self->note_send_drop(*info);
+                    continue;
+                }
+                ++info->sends_in_flight;
+                self->_udp_server->async_send_to(asio::buffer(*seg), info->udp_peer, [seg, info](const asio::error_code&, std::size_t) { --info->sends_in_flight; });
             }
         }
     });
+}
+
+void network_manager::note_send_drop(peer_info_t& info)
+{
+    ++info.sends_dropped;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - info.last_drop_log >= 1s) {
+        spdlog::warn("udp send queue is full for id:{}, {} datagrams dropped so far", info.id, info.sends_dropped);
+        info.last_drop_log = now;
+    }
 }
 
 bool network_manager::should_transmit(const char* data, size_t count)
