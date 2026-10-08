@@ -69,7 +69,7 @@ class UpdateWorker(appContext: Context, workerParams: WorkerParameters) : Worker
                 }
             }
             val latestRelease: LatestRelease = try {
-                httpClient.get("https://api.github.com/repos/outusuke/audio-share/releases/latest").body()
+                httpClient.get("https://api.github.com/repos/outusuke/audio-share-plus/releases/latest").body()
             } catch (e: Exception) {
                 // No release yet (404), offline, or rate limited.
                 Log.w(tag, "update check failed", e)
