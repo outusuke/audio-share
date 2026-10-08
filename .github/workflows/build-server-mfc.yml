@@ -1,0 +1,58 @@
+name: Build server-mfc (quick check)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "server-mfc/**"
+      - "server-core/src/**"
+      - "protos/**"
+      - ".github/workflows/build-server-mfc.yml"
+
+concurrency:
+  group: server-mfc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_server_mfc:
+    name: Build server-mfc
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: server-mfc
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+      # Reuse built packages between runs; the first run is slow, later ones take a few minutes.
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore vcpkg package cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-binary-cache
+          # Changing the vcpkg commit or package list in this file starts a fresh cache.
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('.github/workflows/build-server-mfc.yml') }}
+          restore-keys: vcpkg-bin-${{ runner.os }}-
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+
+      - run: vcpkg integrate install
+
+      - run: vcpkg install asio protobuf spdlog[wchar] wil nlohmann-json
+
+      - name: Build
+        run: msbuild audio-share-server.sln /m /nologo "/t:audio-share-server" "/p:Configuration=Release;Platform=x64" "/clp:ErrorsOnly;Summary" "/flp:logfile=msbuild.log;verbosity=normal"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msbuild-log
+          path: server-mfc/msbuild.log
+          if-no-files-found: ignore
