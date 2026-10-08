@@ -1,4 +1,4 @@
-name: Build server-mfc (quick check)
+name: Check server-mfc compiles
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - "server-mfc/**"
       - "server-core/src/**"
       - "protos/**"
-      - ".github/workflows/build-server-mfc.yml"
+      - ".github/workflows/check-server-mfc.yml"
 
 concurrency:
   group: server-mfc-${{ github.ref }}
@@ -33,7 +33,7 @@ jobs:
         with:
           path: vcpkg-binary-cache
           # Changing the vcpkg commit or package list in this file starts a fresh cache.
-          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('.github/workflows/build-server-mfc.yml') }}
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('.github/workflows/check-server-mfc.yml') }}
           restore-keys: vcpkg-bin-${{ runner.os }}-
 
       - uses: microsoft/setup-msbuild@v2
