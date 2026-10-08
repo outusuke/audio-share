@@ -1,4 +1,7 @@
-# Audio Share
+# Audio Share Plus
+
+A fork of [Audio Share](https://github.com/mkckr0/audio-share) by [mkckr0](https://github.com/mkckr0), licensed under Apache 2.0. Thanks to the original author for the project. This fork adds Opus streaming, lower latency, a loudness enhancer, and a sturdier playback pipeline. Modified files are marked as changed per the license. Original copyright notices are kept.
+
 <p align="center">
     <img src="metadata/en-US/images/icon.png" width="20%" alt="metadata/en-US/images/icon.png">
 </p>

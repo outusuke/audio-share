@@ -33,7 +33,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.mkckr0.audio_share_app"
+        applicationId = "app.audioshareplus"
         minSdk = 23
         targetSdk = 35
         versionCode = 3004

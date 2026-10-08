@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">Audio Share</string>
+    <string name="app_name" translatable="false">Audio Share Plus</string>
 
     <!-- Network Config Defaults -->
     <string name="default_host" translatable="false">192.168.</string>

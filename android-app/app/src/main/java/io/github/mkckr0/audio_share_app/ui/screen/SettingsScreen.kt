@@ -237,7 +237,7 @@ fun SettingsScreen() {
         PreferenceCategory(context.getString(R.string.label_about)) {
             Preference(
                 icon = R.drawable.github_mark,
-                title = "Audio Share",
+                title = "Audio Share Plus",
                 summary = stringResource(R.string.project_url),
                 intent = rememberIntent(
                     Intent.ACTION_VIEW,

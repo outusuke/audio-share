@@ -125,7 +125,7 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                 val mediaItem = MediaItem.fromUri("tcp://$host:$port").buildUpon()
                     .setMediaMetadata(
                         MediaMetadata.Builder()
-                            .setTitle("Audio Share")
+                            .setTitle("Audio Share Plus")
                             .setArtist("$host:$port")
                             .setArtworkUri(context.getResourceUri(R.drawable.artwork))
                             .build()
@@ -451,7 +451,7 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
                 @Suppress("DEPRECATION")
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF
             }
-            _wifiLock = wifiManager.createWifiLock(mode, "AudioShare").apply {
+            _wifiLock = wifiManager.createWifiLock(mode, "AudioSharePlus").apply {
                 setReferenceCounted(false)
                 acquire()
             }
