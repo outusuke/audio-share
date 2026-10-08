@@ -17,7 +17,10 @@
 package io.github.mkckr0.audio_share_app.service
 
 import android.content.Context
+import android.media.MediaCodecList
+import android.media.MediaFormat
 import android.util.Log
+import io.github.mkckr0.audio_share_app.BuildConfig
 import io.github.mkckr0.audio_share_app.R
 import io.github.mkckr0.audio_share_app.pb.Client.AudioFormat
 import io.ktor.network.selector.SelectorManager
@@ -147,7 +150,7 @@ class NetClient(val context: Context) {
             val tcpReadChannel = session.read
             val tcpWriteChannel = session.write
             val audioFormat = session.format
-            var cmd = CMD.CMD_NONE
+            var cmd: CMD? = CMD.CMD_NONE
             _callback?.launch {
                 onReceiveAudioFormat(audioFormat)
             }?.join()   // wait AudioTrack created
@@ -180,16 +183,19 @@ class NetClient(val context: Context) {
             scope.launch {
                 _heartbeatLastTick = TimeSource.Monotonic.markNow()
                 while (true) {
-                    Log.d(tag, "check heartbeat")
+                    if (BuildConfig.DEBUG) Log.d(tag, "check heartbeat")
                     if (TimeSource.Monotonic.markNow() - _heartbeatLastTick > 5.seconds) {
-                        throw Exception("heartbeat timeout")
+                        throw HeartbeatTimeoutException()
                     }
                     delay(3.seconds)
                 }
             }
             scope.launch {
                 while (true) {
-                    cmd = tcpReadChannel.readCMD()
+                    if (tcpReadChannel.isClosedForRead) {
+                        throw ConnectionClosedException()
+                    }
+                    cmd = tcpReadChannel.readCMD() ?: throw ProtocolException("unknown command from server")
                     if (cmd == CMD.CMD_HEARTBEAT) {
                         Log.d(tag, "receive heartbeat")
                         _heartbeatLastTick = TimeSource.Monotonic.markNow()
@@ -217,6 +223,14 @@ class NetClient(val context: Context) {
         }
     }
 
+    // some vendor builds ship without a working Opus decoder; asking for PCM instead keeps them playing
+    private fun opusDecoderAvailable(): Boolean = try {
+        val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, 48000, 2)
+        MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format) != null
+    } catch (e: Exception) {
+        false
+    }
+
     private suspend fun connectTcp(host: String, port: Int) {
         try {
             _tcpSocket = withTimeout(3.seconds) {
@@ -240,7 +254,7 @@ class NetClient(val context: Context) {
         val expected = if (useV2) CMD.CMD_GET_FORMAT_V2 else CMD.CMD_GET_FORMAT
         write.writeCMD(expected)
         if (useV2) {
-            write.writeIntLE(CAP_OPUS)
+            write.writeIntLE(if (opusDecoderAvailable()) CAP_OPUS else 0)
         }
         if (read.readCMD() != expected) {
             throw Exception("unexpected reply to the format request")

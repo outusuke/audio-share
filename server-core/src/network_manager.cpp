@@ -45,7 +45,7 @@
 namespace ip = asio::ip;
 using namespace std::chrono_literals;
 
-// remote_endpoint() throws once the peer has reset or closed, which used to abort cleanup halfway
+// remote_endpoint() throws on a reset socket
 template <typename Socket>
 static std::string remote_str(Socket& s)
 {
@@ -204,10 +204,10 @@ void network_manager::start_server(const std::string& host, uint16_t port, const
         _udp_server->bind(endpoint);
 
         // DSCP EF lands in the WMM voice queue on Wi-Fi; plenty of systems ignore it
-        asio::error_code tos_ec;
-        _udp_server->set_option(asio::detail::socket_option::integer<IPPROTO_IP, IP_TOS>(0xb8), tos_ec);
+        const int tos = 0xb8;
+        ::setsockopt(_udp_server->native_handle(), IPPROTO_IP, IP_TOS, reinterpret_cast<const char*>(&tos), sizeof(tos));
 #ifdef _WINDOWS
-        // without this, an ICMP port-unreachable from a vanished phone fails the next receive
+        // otherwise a vanished phone's ICMP port-unreachable fails the next receive
         DWORD returned = 0;
         BOOL new_behavior = FALSE;
         WSAIoctl(_udp_server->native_handle(), SIO_UDP_CONNRESET, &new_behavior, sizeof(new_behavior), nullptr, 0, &returned, nullptr, nullptr);
@@ -397,7 +397,7 @@ asio::awaitable<void> network_manager::accept_tcp_loop(tcp_acceptor acceptor)
             if (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor) {
                 co_return;
             }
-            // EMFILE and friends are transient, giving up here would leave the server deaf
+            // EMFILE etc. are transient; returning would leave the server deaf
             spdlog::error("{} {}", __func__, ec);
             backoff.expires_after(100ms);
             co_await backoff.async_wait();
@@ -431,7 +431,7 @@ asio::awaitable<void> network_manager::accept_udp_loop()
         ip::udp::endpoint udp_peer;
         auto [ec, _] = co_await _udp_server->async_receive_from(asio::buffer(&id, sizeof(id)), udp_peer);
         if (ec == asio::error::message_size || ec == asio::error::connection_reset) {
-            continue; // stray datagram or ICMP echo, not worth ending registration for
+            continue; // Windows surfaces ICMP port-unreachable as connection_reset
         }
         if (ec) {
             spdlog::info("{} {}", __func__, ec);
@@ -511,7 +511,7 @@ auto network_manager::remove_playing_peer(std::shared_ptr<tcp_socket>& peer) -> 
 {
     auto it = _playing_peer_list.find(peer);
     if (it == _playing_peer_list.end()) {
-        return it; // sessions can be closed from several coroutines
+        return it; // several coroutines can close the same session
     }
 
     it = _playing_peer_list.erase(it);

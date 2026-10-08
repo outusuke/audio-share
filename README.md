@@ -6,31 +6,31 @@ A fork of [Audio Share](https://github.com/mkckr0/audio-share) by [mkckr0](https
     <img src="metadata/en-US/images/icon.png" width="20%" alt="metadata/en-US/images/icon.png">
 </p>
 
-[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/mkckr0/audio-share?logo=github)](https://github.com/mkckr0/audio-share/releases/latest)
+[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/outusuke/audio-share-plus?logo=github)](https://github.com/outusuke/audio-share-plus/releases/latest)
 [![F-Droid](https://img.shields.io/f-droid/v/io.github.mkckr0.audio_share_app?logo=F-Droid)](https://f-droid.org/packages/io.github.mkckr0.audio_share_app)
-[![GitHub license](https://img.shields.io/github/license/mkckr0/audio-share)](https://img.shields.io/github/license/mkckr0/audio-share)
-[![GitHub Release Date](https://img.shields.io/github/release-date/mkckr0/audio-share)](https://img.shields.io/github/release-date/mkckr0/audio-share)
-[![GitHub last commit](https://img.shields.io/github/last-commit/mkckr0/audio-share)](https://img.shields.io/github/last-commit/mkckr0/audio-share)
-[![GitHub contributors](https://img.shields.io/github/contributors/mkckr0/audio-share)](https://img.shields.io/github/contributors/mkckr0/audio-share)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/y/mkckr0/audio-share)](https://img.shields.io/github/commit-activity/y/mkckr0/audio-share)
-[![GitHub Repo stars](https://img.shields.io/github/stars/mkckr0/audio-share?style=flat)](https://img.shields.io/github/stars/mkckr0/audio-share)
-[![GitHub forks](https://img.shields.io/github/forks/mkckr0/audio-share?style=flat)](https://img.shields.io/github/forks/mkckr0/audio-share)
-[![GitHub watchers](https://img.shields.io/github/watchers/mkckr0/audio-share?style=flat)](https://img.shields.io/github/watchers/mkckr0/audio-share)
-[![GitHub language count](https://img.shields.io/github/languages/count/mkckr0/audio-share)](https://img.shields.io/github/languages/count/mkckr0/audio-share)
-[![GitHub top language](https://img.shields.io/github/languages/top/mkckr0/audio-share)](https://img.shields.io/github/languages/top/mkckr0/audio-share)
-[![GitHub repo size](https://img.shields.io/github/repo-size/mkckr0/audio-share)](https://img.shields.io/github/repo-size/mkckr0/audio-share)
-[![GitHub all releases](https://img.shields.io/github/downloads/mkckr0/audio-share/total?logo=github)](https://img.shields.io/github/downloads/mkckr0/audio-share/total)
+[![GitHub license](https://img.shields.io/github/license/outusuke/audio-share-plus)](https://img.shields.io/github/license/outusuke/audio-share-plus)
+[![GitHub Release Date](https://img.shields.io/github/release-date/outusuke/audio-share-plus)](https://img.shields.io/github/release-date/outusuke/audio-share-plus)
+[![GitHub last commit](https://img.shields.io/github/last-commit/outusuke/audio-share-plus)](https://img.shields.io/github/last-commit/outusuke/audio-share-plus)
+[![GitHub contributors](https://img.shields.io/github/contributors/outusuke/audio-share-plus)](https://img.shields.io/github/contributors/outusuke/audio-share-plus)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/y/outusuke/audio-share-plus)](https://img.shields.io/github/commit-activity/y/outusuke/audio-share-plus)
+[![GitHub Repo stars](https://img.shields.io/github/stars/outusuke/audio-share-plus?style=flat)](https://img.shields.io/github/stars/outusuke/audio-share-plus)
+[![GitHub forks](https://img.shields.io/github/forks/outusuke/audio-share-plus?style=flat)](https://img.shields.io/github/forks/outusuke/audio-share-plus)
+[![GitHub watchers](https://img.shields.io/github/watchers/outusuke/audio-share-plus?style=flat)](https://img.shields.io/github/watchers/outusuke/audio-share-plus)
+[![GitHub language count](https://img.shields.io/github/languages/count/outusuke/audio-share-plus)](https://img.shields.io/github/languages/count/outusuke/audio-share-plus)
+[![GitHub top language](https://img.shields.io/github/languages/top/outusuke/audio-share-plus)](https://img.shields.io/github/languages/top/outusuke/audio-share-plus)
+[![GitHub repo size](https://img.shields.io/github/repo-size/outusuke/audio-share-plus)](https://img.shields.io/github/repo-size/outusuke/audio-share-plus)
+[![GitHub all releases](https://img.shields.io/github/downloads/outusuke/audio-share-plus/total?logo=github)](https://img.shields.io/github/downloads/outusuke/audio-share-plus/total)
 [![Download Audio Share](https://img.shields.io/sourceforge/dt/audio-share.svg?logo=sourceforge)](https://sourceforge.net/projects/audio-share/files)
-[![GitHub issues](https://img.shields.io/github/issues/mkckr0/audio-share)](https://img.shields.io/github/issues/mkckr0/audio-share)
-[![GitHub closed issues](https://img.shields.io/github/issues-closed/mkckr0/audio-share)](https://img.shields.io/github/issues-closed/mkckr0/audio-share)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/mkckr0/audio-share)](https://img.shields.io/github/issues-pr/mkckr0/audio-share)
-[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/mkckr0/audio-share)](https://img.shields.io/github/issues-pr-closed/mkckr0/audio-share)
-[![Release](https://github.com/mkckr0/audio-share/actions/workflows/release.yml/badge.svg)](https://github.com/mkckr0/audio-share/actions/workflows/release.yml)
+[![GitHub issues](https://img.shields.io/github/issues/outusuke/audio-share-plus)](https://img.shields.io/github/issues/outusuke/audio-share-plus)
+[![GitHub closed issues](https://img.shields.io/github/issues-closed/outusuke/audio-share-plus)](https://img.shields.io/github/issues-closed/outusuke/audio-share-plus)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/outusuke/audio-share-plus)](https://img.shields.io/github/issues-pr/outusuke/audio-share-plus)
+[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/outusuke/audio-share-plus)](https://img.shields.io/github/issues-pr-closed/outusuke/audio-share-plus)
+[![Release](https://github.com/outusuke/audio-share-plus/actions/workflows/release.yml/badge.svg)](https://github.com/outusuke/audio-share-plus/actions/workflows/release.yml)
 [![GitHub number of milestones](https://img.shields.io/github/milestones/open/mkckr0/audio-share)](https://github.com/mkckr0/audio-share/milestones?state=open)
 [![GitHub milestone details](https://img.shields.io/github/milestones/progress-percent/mkckr0/audio-share/3)](https://github.com/mkckr0/audio-share/milestone/3)
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmkckr0%2Faudio-share.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmkckr0%2Faudio-share?ref=badge_shield)
 
-<a href="https://github.com/mkckr0/audio-share/releases/latest"><img src="https://raw.githubusercontent.com/Ehviewer-Overhauled/Art/master/get-it-on-github.svg" height="75"></a>
+<a href="https://github.com/outusuke/audio-share-plus/releases/latest"><img src="https://raw.githubusercontent.com/Ehviewer-Overhauled/Art/master/get-it-on-github.svg" height="75"></a>
 <a href="https://f-droid.org/packages/io.github.mkckr0.audio_share_app"><img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" height="75"></a>
 
 <a href="https://sourceforge.net/projects/audio-share/files"><img alt="Download Audio Share" src="https://a.fsdn.com/con/app/sf-download-button?button_size=2x" width=276 height=48></a>
@@ -59,7 +59,7 @@ Audio Share can share Windows/Linux computer's audio to Android phone over netwo
 - The network (e.g. Wi-Fi or USB tethering) that the phone can connect with the PC.
 
 ## Usage for Windows GUI
-- Download APK file and AudioShareServer.exe from [latest release](https://github.com/mkckr0/audio-share/releases/latest).
+- Download APK file and AudioShareServer.exe from [latest release](https://github.com/outusuke/audio-share-plus/releases/latest).
 - Open the AudioShareServer.exe on your computer. The default arguments may work well. But you may still have to check the "Host" part. It's normally the LAN address, such as `192.168.xxx.xxx`. Make sure your phone can connect your computer over this IP address. Then Click "Start Server" button.
 - Install APK to your phone and open it. Modify the "Host" part to make sure it's same as the value of previous step, such as `192.168.xxx.xxx`. Click "▶" button and enjoy the audio🎶.
 
@@ -131,7 +131,7 @@ There are two kinds of audio format:
 - Capture audio format
 - Transfer audio format
 
-The transfer audio format is uncompressed PCM data and keep same with capture audio format.
+With `--compression=none` (and for older apps and the Windows GUI server) the transfer audio format is uncompressed PCM, the same as the capture audio format. With Opus, the command line server's default, the stream is 48 kHz Opus that the app decodes to 16-bit PCM; see [Audio Compression (Opus)](#audio-compression-opus).
 
 You can open `server.log` to see the transfer audio format.
 ```
@@ -217,6 +217,10 @@ total: 1
 
 ## Known Issues
 
+### Some phones can't decode Opus
+
+The app decodes Opus with Android's `MediaCodec`, and a few vendor builds ship without a working Opus decoder. The app checks for one before connecting and, if it finds none, asks the server for raw PCM instead. Playback then works but uses more Wi-Fi bandwidth.
+
 ### The quick settings tile can't start playback directly
 
 [Restrictions on starting a foreground service from the background](https://developer.android.com/develop/background-work/services/foreground-services#bg-access-restrictions)  
@@ -244,7 +248,7 @@ Turns off or ignore battery optimizations can let it work.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=mkckr0/audio-share&type=Date)](https://star-history.com/#mkckr0/audio-share&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=outusuke/audio-share-plus&type=Date)](https://star-history.com/#outusuke/audio-share-plus&Date)
 
 ## License
 This project is licensed under the [Apache-2.0 license](https://opensource.org/license/apache-2-0) .

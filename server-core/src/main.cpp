@@ -3,6 +3,7 @@
 #include "network_manager.hpp"
 
 #include <cxxopts.hpp>
+#include <algorithm>
 #include <csignal>
 #include <iostream>
 #include <spdlog/spdlog.h>
@@ -93,14 +94,38 @@ int main(int argc, char* argv[])
 
         if (result.count("bind")) {
             auto s = result["bind"].as<string>();
-            size_t pos = s.find(':');
-            string host = s.substr(0, pos);
-            uint16_t port;
-            if (pos == string::npos) {
-                port = 65530;
+            string host;
+            string port_str;
+            if (!s.empty() && s.front() == '[') { // [::1]:65530
+                const size_t close = s.find(']');
+                if (close == string::npos || (close + 1 < s.size() && s[close + 1] != ':')) {
+                    std::cerr << "bad --bind value, expected [address]:port\n";
+                    return EXIT_FAILURE;
+                }
+                host = s.substr(1, close - 1);
+                if (close + 2 <= s.size()) {
+                    port_str = s.substr(close + 2);
+                }
+            } else if (std::count(s.begin(), s.end(), ':') > 1) { // bare IPv6, default port
+                host = s;
             } else {
-                const int parsed = std::stoi(s.substr(pos + 1));
-                if (parsed < 1 || parsed > 65535) {
+                const size_t pos = s.find(':');
+                host = s.substr(0, pos);
+                if (pos != string::npos) {
+                    port_str = s.substr(pos + 1);
+                }
+            }
+
+            uint16_t port = 65530;
+            if (!port_str.empty()) {
+                int parsed = 0;
+                size_t used = 0;
+                try {
+                    parsed = std::stoi(port_str, &used);
+                } catch (const std::exception&) {
+                    used = 0;
+                }
+                if (used != port_str.size() || parsed < 1 || parsed > 65535) {
                     std::cerr << "port must be between 1 and 65535\n";
                     return EXIT_FAILURE;
                 }
@@ -137,7 +162,7 @@ int main(int argc, char* argv[])
 
             network_manager->start_server(host, port, capture_config);
 
-            // keep our own reference: stop_server() drops the manager's, and signals must die before the io_context
+            // stop_server() drops the manager's ioc, so hold our own until the signals are gone
             auto ioc = network_manager->_ioc;
             asio::signal_set signals(*ioc, SIGINT, SIGTERM);
             signals.async_wait([raw = ioc.get()](const asio::error_code&, int) { raw->stop(); });

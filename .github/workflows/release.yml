@@ -44,6 +44,18 @@ jobs:
       - run: ./gradlew :app:assembleRelease
       - run: ./gradlew :app:signingReport
 
+      - name: Refuse debug-signed APKs
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          for apk in app/build/outputs/apk/release/*.apk; do
+            certs=$("$apksigner" verify --print-certs "$apk")
+            echo "$certs"
+            if echo "$certs" | grep -qi "CN=Android Debug"; then
+              echo "::error::$apk is signed with the debug key"
+              exit 1
+            fi
+          done
+
       - name: Checksum
         run: cd app/build/outputs/apk/release/ && sha256sum *.apk | tee $(ls *.apk).sha256
 
