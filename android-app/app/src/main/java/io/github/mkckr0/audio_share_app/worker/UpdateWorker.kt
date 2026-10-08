@@ -69,7 +69,7 @@ class UpdateWorker(appContext: Context, workerParams: WorkerParameters) : Worker
                 }
             }
             val res =
-                httpClient.get("https://api.github.com/repos/mkckr0/audio-share/releases/latest")
+                httpClient.get("https://api.github.com/repos/outusuke/audio-share/releases/latest")
             val latestRelease: LatestRelease = res.body()
 
             withContext(Dispatchers.Main) {
