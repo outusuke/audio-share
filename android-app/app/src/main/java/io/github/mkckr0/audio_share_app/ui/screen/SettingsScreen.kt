@@ -259,7 +259,7 @@ fun SettingsScreen() {
                 summary = remember { "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})-${BuildConfig.BUILD_TYPE}" },
                 intent = rememberIntent(
                     Intent.ACTION_VIEW,
-                    "https://github.com/outusuke/audio-share/releases/tag/v${BuildConfig.VERSION_NAME}"
+                    "https://github.com/outusuke/audio-share-plus/releases/tag/v${BuildConfig.VERSION_NAME}"
                 ),
             )
         }
