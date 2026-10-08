@@ -237,7 +237,7 @@ fun SettingsScreen() {
         PreferenceCategory(context.getString(R.string.label_about)) {
             Preference(
                 icon = R.drawable.github_mark,
-                title = "Audio Share",
+                title = "Audio Share Plus",
                 summary = stringResource(R.string.project_url),
                 intent = rememberIntent(
                     Intent.ACTION_VIEW,
@@ -259,7 +259,7 @@ fun SettingsScreen() {
                 summary = remember { "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})-${BuildConfig.BUILD_TYPE}" },
                 intent = rememberIntent(
                     Intent.ACTION_VIEW,
-                    "https://github.com/mkckr0/audio-share/releases/tag/v${BuildConfig.VERSION_NAME}"
+                    "https://github.com/outusuke/audio-share/releases/tag/v${BuildConfig.VERSION_NAME}"
                 ),
             )
         }

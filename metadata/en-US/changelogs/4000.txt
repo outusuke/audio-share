@@ -1,0 +1,4 @@
+Rename to Audio Share Plus
+- Opus streaming and lower latency
+- Fix crash when the loudness enhancer is unavailable on the device
+- Update checks and links now point to the Audio Share Plus repository
